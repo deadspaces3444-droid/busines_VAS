@@ -8,7 +8,7 @@ const https = require('https');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
+const INITIAL_ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
 
 const ROOT = __dirname;
 const DATA_DIR = path.join(ROOT, '.data');
@@ -17,20 +17,86 @@ const DB_FILE = path.join(DATA_DIR, 'db.json');
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-if (!fs.existsSync(DB_FILE)) fs.writeFileSync(DB_FILE, JSON.stringify({ polls: {} }, null, 2));
+
+// ============================================================
+// Хеширование пароля (scrypt, встроенный в crypto)
+// ============================================================
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16);
+  const hash = crypto.scryptSync(password, salt, 64);
+  return 'scrypt$' + salt.toString('hex') + '$' + hash.toString('hex');
+}
+
+function verifyPassword(password, stored) {
+  try {
+    const parts = String(stored || '').split('$');
+    if (parts.length !== 3 || parts[0] !== 'scrypt') return false;
+    const salt = Buffer.from(parts[1], 'hex');
+    const expected = Buffer.from(parts[2], 'hex');
+    const actual = crypto.scryptSync(password, salt, 64);
+    if (actual.length !== expected.length) return false;
+    return crypto.timingSafeEqual(actual, expected);
+  } catch (e) {
+    return false;
+  }
+}
+
+// ============================================================
+// База данных (JSON-файл, атомарная запись)
+// ============================================================
+function defaultDb() {
+  return {
+    adminPasswordHash: null,
+    polls: {}
+  };
+}
 
 function loadDb() {
+  let db;
   try {
-    const db = JSON.parse(fs.readFileSync(DB_FILE, 'utf-8'));
-    // миграция: votes должен быть массивом
-    Object.keys(db.polls || {}).forEach(t => {
-      if (!Array.isArray(db.polls[t].votes)) db.polls[t].votes = [];
-    });
-    return db;
-  } catch { return { polls: {} }; }
-}
-function saveDb(db) { fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2)); }
+    db = JSON.parse(fs.readFileSync(DB_FILE, 'utf-8'));
+  } catch (e) {
+    db = defaultDb();
+  }
+  if (!db || typeof db !== 'object') db = defaultDb();
+  if (typeof db.polls !== 'object' || db.polls === null) db.polls = {};
+  if (typeof db.adminPasswordHash !== 'string') db.adminPasswordHash = null;
 
+  // миграция: votes должен быть массивом записей
+  Object.keys(db.polls).forEach(t => {
+    const p = db.polls[t];
+    if (!Array.isArray(p.votes)) p.votes = [];
+    if (!Array.isArray(p.options)) p.options = [];
+  });
+  return db;
+}
+
+function saveDb(db) {
+  const tmp = DB_FILE + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(db, null, 2));
+  fs.renameSync(tmp, DB_FILE);
+}
+
+// Первый запуск: задаём начальный пароль, если хеша ещё нет
+(function ensureInitialPassword() {
+  if (!fs.existsSync(DB_FILE)) {
+    const db = defaultDb();
+    db.adminPasswordHash = hashPassword(INITIAL_ADMIN_PASSWORD);
+    saveDb(db);
+    console.log('Инициализирована база, пароль администратора: ' + INITIAL_ADMIN_PASSWORD);
+    return;
+  }
+  const db = loadDb();
+  if (!db.adminPasswordHash) {
+    db.adminPasswordHash = hashPassword(INITIAL_ADMIN_PASSWORD);
+    saveDb(db);
+    console.log('Установлен начальный пароль администратора: ' + INITIAL_ADMIN_PASSWORD);
+  }
+})();
+
+// ============================================================
+// SSRF-защита и парсинг ссылок
+// ============================================================
 function isPrivateHost(host) {
   host = String(host || '').toLowerCase();
   if (!host) return true;
@@ -59,7 +125,7 @@ function fetchHtml(url, redirectsLeft) {
         'Accept-Language': 'ru,en;q=0.8'
       }
     }, resp => {
-      if ([301,302,303,307,308].includes(resp.statusCode) && resp.headers.location) {
+      if ([301, 302, 303, 307, 308].includes(resp.statusCode) && resp.headers.location) {
         resp.resume();
         if (!redirectsLeft) return reject(new Error('Слишком много редиректов'));
         let next;
@@ -120,6 +186,9 @@ function parseMeta(html, baseUrl) {
   return { title, description: desc, image: absoluteUrl(img, baseUrl) };
 }
 
+// ============================================================
+// Multer (загрузка картинок)
+// ============================================================
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, UPLOAD_DIR),
   filename: (req, file, cb) => {
@@ -132,13 +201,20 @@ const upload = multer({
   fileFilter: (req, file, cb) => /^image\//.test(file.mimetype) ? cb(null, true) : cb(new Error('Только изображения'))
 });
 
+// ============================================================
+// Middleware
+// ============================================================
 app.use(express.json({ limit: '2mb' }));
 app.use('/api/uploads', express.static(UPLOAD_DIR));
 app.use(express.static(ROOT, { dotfiles: 'ignore', index: 'index.html' }));
 
 function adminAuth(req, res, next) {
   const pass = req.headers['x-admin-password'] || req.query.password;
-  if (pass !== ADMIN_PASSWORD) return res.status(401).json({ error: 'Неверный пароль' });
+  if (!pass) return res.status(401).json({ error: 'Требуется пароль' });
+  const db = loadDb();
+  if (!verifyPassword(pass, db.adminPasswordHash)) {
+    return res.status(401).json({ error: 'Неверный пароль' });
+  }
   next();
 }
 
@@ -146,13 +222,55 @@ function normalizeName(n) {
   return String(n || '').trim().replace(/\s+/g, ' ').slice(0, 100);
 }
 
+// ============================================================
+// Ping (для определения режима клиентом)
+// ============================================================
 app.get('/api/ping', (req, res) => res.json({ ok: true, server: 'beeline-surveys' }));
 
+// ============================================================
+// Проверка пароля (для входа админа)
+// ============================================================
+app.post('/api/admin/login', (req, res) => {
+  const pass = req.body && req.body.password;
+  if (!pass) return res.status(400).json({ error: 'Пароль обязателен' });
+  const db = loadDb();
+  if (!verifyPassword(pass, db.adminPasswordHash)) {
+    return res.status(401).json({ error: 'Неверный пароль' });
+  }
+  res.json({ ok: true });
+});
+
+// ============================================================
+// Смена пароля администратора
+// ============================================================
+app.post('/api/admin/change-password', adminAuth, (req, res) => {
+  const { currentPassword, newPassword } = req.body || {};
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ error: 'Укажите текущий и новый пароль' });
+  }
+  if (String(newPassword).length < 6) {
+    return res.status(400).json({ error: 'Новый пароль должен быть не короче 6 символов' });
+  }
+  const db = loadDb();
+  if (!verifyPassword(currentPassword, db.adminPasswordHash)) {
+    return res.status(401).json({ error: 'Текущий пароль неверен' });
+  }
+  db.adminPasswordHash = hashPassword(newPassword);
+  saveDb(db);
+  res.json({ ok: true });
+});
+
+// ============================================================
+// Загрузка картинок
+// ============================================================
 app.post('/api/admin/upload', adminAuth, upload.single('image'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Файл не загружен' });
   res.json({ url: 'api/uploads/' + req.file.filename });
 });
 
+// ============================================================
+// Парсинг ссылки
+// ============================================================
 app.post('/api/admin/fetch-link', adminAuth, (req, res) => {
   const url = (req.body && req.body.url || '').trim();
   if (!url) return res.status(400).json({ error: 'URL обязателен' });
@@ -161,6 +279,9 @@ app.post('/api/admin/fetch-link', adminAuth, (req, res) => {
     .catch(err => res.status(400).json({ error: err.message || 'Не удалось загрузить' }));
 });
 
+// ============================================================
+// CRUD опросов
+// ============================================================
 app.post('/api/admin/polls', adminAuth, (req, res) => {
   const { title, description, options } = req.body;
   if (!title || !Array.isArray(options) || options.length < 2) {
@@ -225,6 +346,9 @@ app.post('/api/admin/polls/:token/reset', adminAuth, (req, res) => {
   res.json({ ok: true });
 });
 
+// ============================================================
+// Публичное: опрос и голосование
+// ============================================================
 app.get('/api/polls/:token', (req, res) => {
   const db = loadDb();
   const poll = db.polls[req.params.token];
@@ -295,5 +419,6 @@ app.get('/api/polls/:token/results', (req, res) => {
 
 app.listen(PORT, () => {
   console.log('Сервер запущен: http://localhost:' + PORT);
-  console.log('Админ-пароль: ' + ADMIN_PASSWORD);
+  console.log('Данные: ' + DATA_DIR);
+  console.log('Загрузки: ' + UPLOAD_DIR);
 });
