@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Билайн Бизнес — Опросы</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="app">
+
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <a href="index.html" style="text-decoration:none">
+        <svg class="bb-logo" viewBox="0 0 200 56" xmlns="http://www.w3.org/2000/svg" aria-label="Билайн Бизнес">
+          <g transform="translate(0,8)">
+            <circle cx="20" cy="20" r="20" fill="#FFCC00"/>
+            <path d="M4 13 Q20 10 36 13" stroke="#0A0A0A" stroke-width="3" fill="none" stroke-linecap="round"/>
+            <path d="M2 21 Q20 18 38 21" stroke="#0A0A0A" stroke-width="3" fill="none" stroke-linecap="round"/>
+            <path d="M4 29 Q20 26 36 29" stroke="#0A0A0A" stroke-width="3" fill="none" stroke-linecap="round"/>
+          </g>
+          <text x="50" y="28" font-family="Arial, sans-serif" font-weight="900" font-size="20"
+                letter-spacing="-0.8" fill="#ffffff">билайн</text>
+          <text x="50" y="44" font-family="Arial, sans-serif" font-weight="600" font-size="9"
+                letter-spacing="3.5" fill="#FFCC00">БИЗНЕС</text>
+        </svg>
+      </a>
+      <div class="sidebar-office">VAS <span>Саратов / Калуга</span></div>
+    </div>
+
+    <nav class="sidebar-nav">
+      <a href="index.html" class="nav-item active">
+        <span class="nav-icon">🏠</span><span class="nav-label">Главная</span>
+      </a>
+      <a href="admin.html" class="nav-item">
+        <span class="nav-icon">⚙️</span><span class="nav-label">Админ-панель</span>
+      </a>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="mode-badge" id="modeBadge">…</div>
+    </div>
+  </aside>
+
+  <main class="content">
+    <div class="card text-center" style="padding:48px 24px;">
+      <h1>Опросы для сотрудников</h1>
+      <p class="subtitle" style="max-width:520px;margin:0 auto 26px;">
+        Перейдите по ссылке от администратора, укажите фамилию и проголосуйте. Вход не требуется.
+      </p>
+      <a class="btn btn-dark" href="admin.html">Перейти в админ-панель</a>
+      <p class="hint" style="margin-top:22px;" id="modeHint"></p>
+    </div>
+  </main>
+
+</div>
+
+<script src="storage.js"></script>
+<script>
+Storage.init().then(function () {
+  var badge = document.getElementById('modeBadge');
+  var hint  = document.getElementById('modeHint');
+  if (Storage.isServer()) {
+    badge.textContent = 'Серверный режим';
+    hint.textContent = 'Голоса и картинки хранятся на сервере — общие для всех устройств.';
+  } else {
+    badge.textContent = 'Локальный режим';
+    hint.textContent = 'Данные хранятся только в этом браузере (localStorage). ' +
+      'Для общего голосования сотрудников добавьте серверную часть.';
+  }
+});
+</script>
+</body>
+</html>

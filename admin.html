@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Админ — Билайн Бизнес · Опросы</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="app">
+
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <a href="index.html" style="text-decoration:none">
+        <svg class="bb-logo" viewBox="0 0 200 56" xmlns="http://www.w3.org/2000/svg" aria-label="Билайн Бизнес">
+          <g transform="translate(0,8)">
+            <circle cx="20" cy="20" r="20" fill="#FFCC00"/>
+            <path d="M4 13 Q20 10 36 13" stroke="#0A0A0A" stroke-width="3" fill="none" stroke-linecap="round"/>
+            <path d="M2 21 Q20 18 38 21" stroke="#0A0A0A" stroke-width="3" fill="none" stroke-linecap="round"/>
+            <path d="M4 29 Q20 26 36 29" stroke="#0A0A0A" stroke-width="3" fill="none" stroke-linecap="round"/>
+          </g>
+          <text x="50" y="28" font-family="Arial, sans-serif" font-weight="900" font-size="20"
+                letter-spacing="-0.8" fill="#ffffff">билайн</text>
+          <text x="50" y="44" font-family="Arial, sans-serif" font-weight="600" font-size="9"
+                letter-spacing="3.5" fill="#FFCC00">БИЗНЕС</text>
+        </svg>
+      </a>
+      <div class="sidebar-office">VAS <span>Саратов / Калуга</span></div>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="index.html" class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Главная</span></a>
+      <a href="admin.html" class="nav-item active"><span class="nav-icon">⚙️</span><span class="nav-label">Админ-панель</span></a>
+    </nav>
+    <div class="sidebar-footer"><div class="mode-badge" id="modeBadge">…</div></div>
+  </aside>
+
+  <main class="content">
+
+    <div class="card hidden" id="loginCard" style="max-width:420px;margin:40px auto;">
+      <h1>🔐 Вход администратора</h1>
+      <p class="subtitle">Введите пароль, чтобы управлять опросами.</p>
+      <label>Пароль</label>
+      <input type="password" id="passwordInput" placeholder="••••••••" autocomplete="current-password">
+      <div class="actions">
+        <button class="btn btn-primary" id="loginBtn" style="flex:1;">Войти</button>
+      </div>
+      <div class="msg msg-error" id="loginError"></div>
+      <p class="hint" id="loginHint"></p>
+    </div>
+
+    <div id="adminPanel" class="hidden">
+
+      <div class="card">
+        <h2>Создать опрос</h2>
+        <p class="subtitle" id="createHint">
+          Для каждого варианта укажите <b>общий бюджет</b> (стоимость места на всю группу).
+          Сумма на человека посчитается после голосования: <b>бюджет победителя ÷ число проголосовавших</b>.
+          Голосующие обязаны указать фамилию, повторное голосование под одной фамилией блокируется.
+        </p>
+
+        <label>Название опроса</label>
+        <input type="text" id="pollTitle" placeholder="Например: Куда пойдём в пятницу?">
+
+        <label>Описание (необязательно)</label>
+        <textarea id="pollDesc" placeholder="Краткое пояснение для сотрудников"></textarea>
+
+        <h3 style="margin-top:18px">Варианты мест</h3>
+        <div id="optionsList"></div>
+        <div class="actions">
+          <button class="btn btn-ghost" id="addOptionBtn">+ Добавить вариант</button>
+          <button class="btn btn-primary" id="createBtn" style="flex:1;">Создать опрос</button>
+        </div>
+        <div class="msg" id="createMsg"></div>
+      </div>
+
+      <div class="card">
+        <div class="toolbar">
+          <h2 style="margin:0">Мои опросы</h2>
+          <button class="btn btn-ghost btn-sm" id="refreshPolls">Обновить</button>
+        </div>
+        <div id="pollsList"><div class="loading">Загрузка…</div></div>
+      </div>
+
+      <div class="text-center mb-16">
+        <button class="btn btn-ghost" id="logoutBtn">Выйти</button>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<script src="storage.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var adminPanel = document.getElementById('adminPanel');
+  var loginCard  = document.getElementById('loginCard');
+  var loginError = document.getElementById('loginError');
+  var optionsList = document.getElementById('optionsList');
+
+  function showLogin() { loginCard.classList.remove('hidden'); adminPanel.classList.add('hidden'); }
+  function showPanel() { loginCard.classList.add('hidden'); adminPanel.classList.remove('hidden'); loadPolls(); }
+
+  function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c];
+    });
+  }
+  function escapeAttr(s) { return escapeHtml(s); }
+
+  function updatePreview(row) {
+    var preview = row.querySelector('.opt-preview');
+    var img = row.dataset.image;
+    preview.innerHTML = img
+      ? '<img src="' + escapeAttr(img) + '" alt="preview" onerror="this.style.display=\'none\'">'
+      : '';
+  }
+
+  document.getElementById('loginBtn').addEventListener('click', function () {
+    var p = document.getElementById('passwordInput').value;
+    Storage.adminLogin(p).then(showPanel).catch(function () {
+      loginError.textContent = 'Неверный пароль';
+      loginError.className = 'msg msg-error show';
+    });
+  });
+  document.getElementById('passwordInput').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') document.getElementById('loginBtn').click();
+  });
+  document.getElementById('logoutBtn').addEventListener('click', function () {
+    Storage.clearAdminPassword(); showLogin();
+  });
+  document.getElementById('refreshPolls').addEventListener('click', loadPolls);
+
+  function addOption(prefill) {
+    prefill = prefill || {};
+    var row = document.createElement('div');
+    row.className = 'option-row';
+    row.innerHTML =
+      '<button type="button" class="remove-btn">Удалить</button>' +
+      '<div class="opt-link-row">' +
+        '<input type="url" class="opt-link" placeholder="🔗 Ссылка на страницу места (название, описание, картинка)">' +
+        '<button type="button" class="btn btn-dark btn-sm opt-fetch-btn">Загрузить</button>' +
+      '</div>' +
+      '<div class="opt-fetch-msg"></div>' +
+      '<label>Название</label>' +
+      '<input type="text" class="opt-title" placeholder="Например: Ресторан «Восток»">' +
+      '<label>Описание</label>' +
+      '<textarea class="opt-desc" placeholder="Краткое описание места"></textarea>' +
+      '<label>Общий бюджет, ₽</label>' +
+      '<input type="number" class="opt-budget" min="0" step="100" value="0" placeholder="Например, 50000">' +
+      '<label>Картинка</label>' +
+      '<div class="opt-image-row">' +
+        '<input type="url" class="opt-image-url" placeholder="URL картинки или загрузите файл">' +
+        '<label class="opt-file-label">📷 Файл<input type="file" accept="image/*" class="opt-file"></label>' +
+      '</div>' +
+      '<div class="opt-preview"></div>';
+
+    if (prefill.title) row.querySelector('.opt-title').value = prefill.title;
+    if (prefill.description) row.querySelector('.opt-desc').value = prefill.description;
+    if (prefill.budget) row.querySelector('.opt-budget').value = prefill.budget;
+    if (prefill.image) {
+      row.dataset.image = prefill.image;
+      row.querySelector('.opt-image-url').value = prefill.image;
+    }
+    if (prefill.sourceUrl) row.querySelector('.opt-link').value = prefill.sourceUrl;
+
+    row.querySelector('.remove-btn').addEventListener('click', function () { row.remove(); });
+
+    var linkInput = row.querySelector('.opt-link');
+    var fetchBtn  = row.querySelector('.opt-fetch-btn');
+    var fetchMsg  = row.querySelector('.opt-fetch-msg');
+
+    function doFetch() {
+      var url = linkInput.value.trim();
+      if (!url) { fetchMsg.textContent = 'Вставьте ссылку'; fetchMsg.style.color = 'var(--bb-red)'; return; }
+      fetchMsg.textContent = 'Загрузка…'; fetchMsg.style.color = 'var(--bb-gray)';
+      Storage.fetchLink(url).then(function (meta) {
+        if (meta.title) row.querySelector('.opt-title').value = meta.title;
+        if (meta.description) row.querySelector('.opt-desc').value = meta.description;
+        if (meta.image) {
+          row.dataset.image = meta.image;
+          row.querySelector('.opt-image-url').value = meta.image;
+          updatePreview(row);
+        }
+        fetchMsg.textContent = '✓ Данные загружены' + (meta.image ? '' : ' (картинка не найдена)');
+        fetchMsg.style.color = meta.image ? 'var(--bb-green)' : '#a16207';
+        setTimeout(function () { fetchMsg.textContent = ''; }, 3500);
+      }).catch(function (err) {
+        fetchMsg.textContent = '⚠ ' + (err.message || 'Ошибка');
+        fetchMsg.style.color = 'var(--bb-red)';
+      });
+    }
+    fetchBtn.addEventListener('click', doFetch);
+    linkInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); doFetch(); }
+    });
+
+    var imgUrlInput = row.querySelector('.opt-image-url');
+    imgUrlInput.addEventListener('input', function () {
+      var v = imgUrlInput.value.trim();
+      if (v) { row.dataset.image = v; } else { delete row.dataset.image; }
+      updatePreview(row);
+    });
+
+    row.querySelector('.opt-file').addEventListener('change', function (e) {
+      var file = e.target.files[0];
+      if (!file) return;
+      var preview = row.querySelector('.opt-preview');
+      preview.innerHTML = '<div class="hint">Загрузка…</div>';
+      Storage.uploadImage(file).then(function (url) {
+        row.dataset.image = url;
+        imgUrlInput.value = url;
+        updatePreview(row);
+      }).catch(function (err) {
+        preview.innerHTML = '<div class="hint" style="color:var(--bb-red)">' + escapeHtml(err.message) + '</div>';
+      });
+    });
+
+    optionsList.appendChild(row);
+    return row;
+  }
+
+  document.getElementById('addOptionBtn').addEventListener('click', function () { addOption(); });
+
+  document.getElementById('createBtn').addEventListener('click', function () {
+    var msg = document.getElementById('createMsg');
+    msg.className = 'msg'; msg.textContent = '';
+
+    var title = document.getElementById('pollTitle').value.trim();
+    var description = document.getElementById('pollDesc').value.trim();
+    var options = Array.prototype.slice.call(document.querySelectorAll('.option-row')).map(function (row) {
+      return {
+        title: row.querySelector('.opt-title').value.trim(),
+        description: row.querySelector('.opt-desc').value.trim(),
+        budget: Number(row.querySelector('.opt-budget').value) || 0,
+        image: row.dataset.image || null,
+        sourceUrl: row.querySelector('.opt-link').value.trim() || null
+      };
+    }).filter(function (o) { return o.title; });
+
+    if (!title) { return showCreateMsg('Введите название опроса', true); }
+    if (options.length < 2) { return showCreateMsg('Нужно минимум 2 варианта', true); }
+
+    var btn = this;
+    btn.disabled = true;
+    btn.textContent = 'Создание…';
+
+    Storage.createPoll({ title: title, description: description, options: options }).then(function (res) {
+      btn.disabled = false;
+      btn.textContent = 'Создать опрос';
+      var link = Storage.voteUrl(res.token);
+      showCreateMsg('Опрос создан! Ссылка для сотрудников: ' + link, false);
+      document.getElementById('pollTitle').value = '';
+      document.getElementById('pollDesc').value = '';
+      optionsList.innerHTML = '';
+      addOption(); addOption();
+      loadPolls();
+    }).catch(function (err) {
+      btn.disabled = false;
+      btn.textContent = 'Создать опрос';
+      showCreateMsg('Ошибка: ' + err.message, true);
+    });
+  });
+
+  function showCreateMsg(text, isError) {
+    var msg = document.getElementById('createMsg');
+    msg.textContent = text;
+    msg.className = 'msg ' + (isError ? 'msg-error' : 'msg-success') + ' show';
+    if (!isError) {
+      msg.innerHTML = text.replace(/(https?:\/\/\S+)/,
+        '<a href="$1" target="_blank" style="color:#14532D;font-weight:700;">$1</a>');
+    }
+  }
+
+  function loadPolls() {
+    var list = document.getElementById('pollsList');
+    Storage.listPolls().then(function (polls) {
+      if (!polls.length) { list.innerHTML = '<div class="empty">Пока нет опросов.</div>'; return; }
+      list.innerHTML = '';
+      polls.forEach(function (p) {
+        var voteUrl = Storage.voteUrl(p.token);
+        var resUrl  = Storage.resultsUrl(p.token);
+        var item = document.createElement('div');
+        item.className = 'poll-item';
+        item.innerHTML =
+          '<div>' +
+            '<div class="title">' + escapeHtml(p.title) + ' ' +
+              '<span class="badge">' + p.totalVotes + '</span>' +
+            '</div>' +
+            '<div class="meta">' +
+              (p.isOpen ? '🟢 открыт' : '🔴 закрыт') + ' · ' +
+              new Date(p.createdAt).toLocaleString('ru-RU') +
+            '</div>' +
+          '</div>' +
+          '<div class="actions">' +
+            '<a class="btn btn-ghost btn-sm" href="' + voteUrl + '" target="_blank">Голосование</a>' +
+            '<a class="btn btn-ghost btn-sm" href="' + resUrl + '" target="_blank">Результаты</a>' +
+            '<button class="btn btn-ghost btn-sm" data-act="toggle" data-token="' + p.token + '" data-open="' + (!p.isOpen) + '">' +
+              (p.isOpen ? 'Закрыть' : 'Открыть') + '</button>' +
+            '<button class="btn btn-ghost btn-sm" data-act="copy" data-url="' + voteUrl + '">Скопировать</button>' +
+            '<button class="btn btn-danger btn-sm" data-act="reset" data-token="' + p.token + '">Сбросить</button>' +
+            '<button class="btn btn-danger btn-sm" data-act="delete" data-token="' + p.token + '">Удалить</button>' +
+          '</div>';
+        list.appendChild(item);
+      });
+      list.querySelectorAll('button[data-act]').forEach(function (btn) {
+        btn.addEventListener('click', onPollAction);
+      });
+    }).catch(function () {
+      list.innerHTML = '<div class="empty" style="color:var(--bb-red)">Не удалось загрузить</div>';
+    });
+  }
+
+  function onPollAction(e) {
+    var btn = e.currentTarget;
+    var act = btn.dataset.act;
+    var token = btn.dataset.token;
+
+    if (act === 'copy') {
+      var url = btn.dataset.url;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(function () {
+          var old = btn.textContent;
+          btn.textContent = '✓ Скопировано';
+          setTimeout(function () { btn.textContent = old; }, 1500);
+        });
+      } else { window.prompt('Скопируйте ссылку:', url); }
+      return;
+    }
+    if (act === 'delete') {
+      if (!confirm('Удалить опрос? Все голоса будут потеряны.')) return;
+      Storage.deletePoll(token).then(loadPolls);
+      return;
+    }
+    if (act === 'reset') {
+      if (!confirm('Сбросить все голоса этого опроса?')) return;
+      Storage.resetVotes(token).then(loadPolls);
+      return;
+    }
+    if (act === 'toggle') {
+      Storage.togglePoll(token, btn.dataset.open === 'true').then(loadPolls);
+    }
+  }
+
+  Storage.init().then(function () {
+    document.getElementById('modeBadge').textContent = Storage.isServer() ? 'Серверный режим' : 'Локальный режим';
+    if (!Storage.isServer()) {
+      document.getElementById('loginHint').textContent = 'Локальный режим. Пароль по умолчанию: admin123.';
+    }
+    if (Storage.getAdminPassword()) {
+      Storage.listPolls().then(showPanel).catch(showLogin);
+    } else { showLogin(); }
+    addOption(); addOption();
+  });
+})();
+</script>
+</body>
+</html>

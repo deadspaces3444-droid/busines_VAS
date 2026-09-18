@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Голосование — Билайн Бизнес</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="app">
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <a href="index.html" style="text-decoration:none">
+        <svg class="bb-logo" viewBox="0 0 200 56" xmlns="http://www.w3.org/2000/svg" aria-label="Билайн Бизнес">
+          <g transform="translate(0,8)">
+            <circle cx="20" cy="20" r="20" fill="#FFCC00"/>
+            <path d="M4 13 Q20 10 36 13" stroke="#0A0A0A" stroke-width="3" fill="none" stroke-linecap="round"/>
+            <path d="M2 21 Q20 18 38 21" stroke="#0A0A0A" stroke-width="3" fill="none" stroke-linecap="round"/>
+            <path d="M4 29 Q20 26 36 29" stroke="#0A0A0A" stroke-width="3" fill="none" stroke-linecap="round"/>
+          </g>
+          <text x="50" y="28" font-family="Arial, sans-serif" font-weight="900" font-size="20"
+                letter-spacing="-0.8" fill="#ffffff">билайн</text>
+          <text x="50" y="44" font-family="Arial, sans-serif" font-weight="600" font-size="9"
+                letter-spacing="3.5" fill="#FFCC00">БИЗНЕС</text>
+        </svg>
+      </a>
+      <div class="sidebar-office">VAS <span>Саратов / Калуга</span></div>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="index.html" class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Главная</span></a>
+      <a href="admin.html" class="nav-item"><span class="nav-icon">⚙️</span><span class="nav-label">Админ-панель</span></a>
+    </nav>
+    <div class="sidebar-footer"><div class="mode-badge" id="modeBadge">…</div></div>
+  </aside>
+
+  <main class="content">
+
+    <section class="card" id="voteSection">
+      <div class="loading" id="loading">Загрузка опроса…</div>
+      <div class="hidden" id="voteContent">
+        <h1 id="pollTitle"></h1>
+        <p class="subtitle" id="pollDesc"></p>
+
+        <div class="survey-link-box">
+          <label>Ссылка для сотрудников</label>
+          <a class="survey-link" id="shareLink" href="#"></a>
+        </div>
+
+        <div class="voter-block">
+          <label for="voterName">Ваша фамилия <span style="color:var(--bb-red)">*</span></label>
+          <input type="text" id="voterName" maxlength="100" placeholder="Например: Иванов" autocomplete="off">
+          <div class="voter-hint">Повторное голосование под одной фамилией невозможно.</div>
+        </div>
+
+        <div class="msg msg-error" id="voteError"></div>
+        <div class="options-grid" id="optionsGrid"></div>
+
+        <button class="btn btn-primary btn-block" id="voteBtn" disabled>Проголосовать</button>
+        <p class="hint" id="voteHint">Укажите фамилию и выберите вариант</p>
+      </div>
+    </section>
+
+    <section class="hidden" id="resultSection">
+      <div class="card">
+        <h1>Результаты</h1>
+        <p class="subtitle">Всего проголосовало: <b id="totalVotes">0</b></p>
+
+        <div id="winnerBox"></div>
+
+        <h3 style="margin:20px 0 8px">Детали по всем вариантам</h3>
+        <table class="votes-table" id="votesTable"></table>
+
+        <div class="voters-section">
+          <h3>Кто голосовал</h3>
+          <div id="votersList"></div>
+        </div>
+
+        <div class="actions" style="justify-content:center;margin-top:20px">
+          <a class="btn btn-ghost" id="refreshBtn" href="#">Обновить</a>
+        </div>
+        <p class="hint text-center">Спасибо за участие!</p>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script src="storage.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var params = new URLSearchParams(location.search);
+  var token = params.get('t');
+  var poll = null;
+  var selectedId = null;
+
+  var voteSection   = document.getElementById('voteSection');
+  var resultSection = document.getElementById('resultSection');
+  var loadingEl     = document.getElementById('loading');
+  var voteContent   = document.getElementById('voteContent');
+  var optionsGrid   = document.getElementById('optionsGrid');
+  var voteBtn       = document.getElementById('voteBtn');
+  var voteHint      = document.getElementById('voteHint');
+  var voteError     = document.getElementById('voteError');
+  var voterNameEl   = document.getElementById('voterName');
+
+  function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c];
+    });
+  }
+  function escapeAttr(s) { return escapeHtml(s); }
+  function fmt(n) { return Number(n || 0).toLocaleString('ru-RU'); }
+
+  function updateVoteBtnState() {
+    var hasName = voterNameEl.value.trim().length > 0;
+    var hasOption = !!selectedId;
+    voteBtn.disabled = !(hasName && hasOption);
+    if (!hasName && !hasOption) voteHint.textContent = 'Укажите фамилию и выберите вариант';
+    else if (!hasName) voteHint.textContent = 'Укажите фамилию';
+    else if (!hasOption) voteHint.textContent = 'Выберите вариант';
+    else voteHint.textContent = 'Всё готово — можно голосовать';
+  }
+
+  if (!token) {
+    loadingEl.classList.add('hidden');
+    voteContent.classList.remove('hidden');
+    voteContent.innerHTML =
+      '<div class="success"><div class="success-icon">🔗</div>' +
+      '<h2>Не указан опрос</h2>' +
+      '<p>Откройте ссылку, которую прислал администратор.</p></div>';
+    return;
+  }
+
+  document.getElementById('refreshBtn').href = Storage.resultsUrl(token);
+
+  Storage.init().then(function () {
+    document.getElementById('modeBadge').textContent =
+      Storage.isServer() ? 'Серверный режим' : 'Локальный режим';
+    return Storage.getPoll(token);
+  })
+  .then(function (data) {
+    poll = data;
+    if (!poll.isOpen) return showFatal('Опрос закрыт');
+    renderVoteForm();
+  })
+  .catch(function (err) { showFatal(err.message || 'Опрос не найден'); });
+
+  function showFatal(message) {
+    loadingEl.classList.add('hidden');
+    voteContent.classList.remove('hidden');
+    voteContent.innerHTML =
+      '<div class="success"><div class="success-icon">🔒</div>' +
+      '<h2>' + escapeHtml(message) + '</h2>' +
+      '<p>Обратитесь к администратору.</p></div>';
+  }
+
+  function renderVoteForm() {
+    loadingEl.classList.add('hidden');
+    voteContent.classList.remove('hidden');
+
+    document.getElementById('pollTitle').textContent = poll.title;
+    document.getElementById('pollDesc').textContent = poll.description || '';
+
+    var share = document.getElementById('shareLink');
+    share.textContent = location.href;
+    share.href = location.href;
+
+    optionsGrid.innerHTML = '';
+    poll.options.forEach(function (opt) {
+      var card = document.createElement('div');
+      card.className = 'option-card';
+      card.dataset.id = opt.id;
+
+      var imgHtml = opt.image ? '<img src="' + escapeAttr(opt.image) + '" alt="">' : '🖼️';
+      card.innerHTML =
+        '<div class="option-image">' + imgHtml + '</div>' +
+        '<div class="option-body">' +
+          '<h3>' + escapeHtml(opt.title) + '</h3>' +
+          '<p>' + escapeHtml(opt.description || '') + '</p>' +
+          '<div class="option-budget">' +
+            '<span class="option-budget-label">Общий бюджет</span>' +
+            '<span class="option-budget-value">' + fmt(opt.budget) + ' ₽</span>' +
+          '</div>' +
+        '</div>';
+
+      card.addEventListener('click', function () {
+        optionsGrid.querySelectorAll('.option-card').forEach(function (c) {
+          c.classList.remove('selected');
+        });
+        card.classList.add('selected');
+        selectedId = opt.id;
+        updateVoteBtnState();
+      });
+
+      optionsGrid.appendChild(card);
+    });
+
+    voterNameEl.addEventListener('input', updateVoteBtnState);
+    updateVoteBtnState();
+  }
+
+  voteBtn.addEventListener('click', function () {
+    if (!selectedId) return;
+    var name = voterNameEl.value.trim();
+    if (!name) { updateVoteBtnState(); return; }
+
+    voteError.classList.remove('show');
+    voteBtn.disabled = true;
+    voteBtn.textContent = 'Отправка…';
+
+    Storage.vote(token, selectedId, name).then(function () {
+      showResults();
+    }).catch(function (err) {
+      voteError.textContent = err.message || 'Ошибка';
+      voteError.className = 'msg msg-error show';
+      voteBtn.disabled = false;
+      voteBtn.textContent = 'Проголосовать';
+      updateVoteBtnState();
+    });
+  });
+
+  function showResults() { return Storage.getResults(token).then(renderResults); }
+
+  function renderResults(data) {
+    voteSection.classList.add('hidden');
+    resultSection.classList.remove('hidden');
+
+    document.getElementById('totalVotes').textContent = data.totalVotes;
+
+    var wb = document.getElementById('winnerBox');
+    if (!data.winner) {
+      wb.innerHTML = '<div class="winner-box" style="padding:22px;"><h2>😕 Пока нет голосов</h2></div>';
+    } else {
+      var w = data.winner;
+      var imgHtml = w.image
+        ? '<div class="winner-image"><img src="' + escapeAttr(w.image) + '" alt=""></div>'
+        : '<div class="winner-image">🏆</div>';
+
+      wb.innerHTML =
+        '<div class="winner-box">' + imgHtml +
+          '<div class="winner-content">' +
+            '<h2>🏆 ' + escapeHtml(w.title) + '</h2>' +
+            '<p class="winner-desc">' + escapeHtml(w.description || '') + '</p>' +
+            '<div class="budget-highlight">' +
+              '<div>' +
+                '<div class="budget-label">Общий бюджет · ' + w.votes + ' чел. выбрали</div>' +
+                '<div class="budget-sub">' + fmt(w.budget) + ' ₽ ÷ ' + w.votes + ' чел. = ' + fmt(w.perPerson) + ' ₽ на человека</div>' +
+              '</div>' +
+              '<div class="budget-value">' + fmt(w.perPerson) + ' ₽</div>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+    }
+
+    var rows = '';
+    data.results.forEach(function (r) {
+      var isWinner = data.winner && r.id === data.winner.id;
+      rows +=
+        '<tr class="' + (isWinner ? 'winner-row' : '') + '">' +
+          '<td>' + escapeHtml(r.title) + '</td>' +
+          '<td>' + r.votes + '</td>' +
+          '<td>' + fmt(r.budget) + ' ₽</td>' +
+          '<td>' + (r.votes > 0 ? fmt(r.perPerson) + ' ₽' : '—') + '</td>' +
+        '</tr>';
+    });
+    document.getElementById('votesTable').innerHTML =
+      '<thead><tr><th>Место</th><th>Голосов</th><th>Общий бюджет</th><th>На человека</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody>';
+
+    var votersBox = document.getElementById('votersList');
+    var anyVotes = data.results.some(function (r) { return r.votes > 0; });
+    if (!anyVotes) {
+      votersBox.innerHTML = '<div class="empty">Пока никто не голосовал.</div>';
+    } else {
+      votersBox.innerHTML = data.results.map(function (r) {
+        if (r.votes === 0) return '';
+        var isWinner = data.winner && r.id === data.winner.id;
+        var chips = (r.voters || []).map(function (n) {
+          return '<span class="voter-chip">' + escapeHtml(n) + '</span>';
+        }).join('');
+        return '<div class="voters-group' + (isWinner ? ' winner' : '') + '">' +
+          '<div class="vg-head">' +
+            '<span class="vg-title">' + escapeHtml(r.title) + '</span>' +
+            '<span class="vg-count">' + r.votes + ' чел.</span>' +
+          '</div>' +
+          '<div class="voters-chips">' + chips + '</div>' +
+        '</div>';
+      }).join('');
+    }
+  }
+})();
+</script>
+</body>
+</html>
