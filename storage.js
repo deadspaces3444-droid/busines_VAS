@@ -1,6 +1,7 @@
 /* ============================================================
    Абстракция хранилища: GitHub Pages (localStorage) или сервер.
    v4: голосующий указывает фамилию, голоса хранятся как записи.
+   + смена пароля администратора.
    ============================================================ */
 (function (global) {
   'use strict';
@@ -18,7 +19,6 @@
   function loadLocal() {
     try {
       var db = JSON.parse(localStorage.getItem(LS_DB)) || { polls: {} };
-      // нормализуем votes — на случай старых данных
       Object.keys(db.polls || {}).forEach(function (t) {
         var p = db.polls[t];
         if (!Array.isArray(p.votes)) p.votes = [];
@@ -45,16 +45,52 @@
   function setAdminPassword(p) { sessionStorage.setItem('adminPassword', p); }
   function clearAdminPassword() { sessionStorage.removeItem('adminPassword'); }
 
+  // ============================================================
+  // Вход администратора
+  // ============================================================
   async function adminLogin(password) {
     if (mode === 'server') {
-      var r = await fetch('api/admin/polls', { headers: { 'x-admin-password': password } });
-      if (!r.ok) throw new Error('Неверный пароль');
+      var r = await fetch('api/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: password })
+      });
+      if (!r.ok) {
+        var err = await r.json().catch(function () { return {}; });
+        throw new Error(err.error || 'Неверный пароль');
+      }
       setAdminPassword(password);
       return true;
     }
     var saved = localStorage.getItem(LS_ADMIN_DEFAULT) || DEFAULT_ADMIN_PASSWORD;
     if (password !== saved) throw new Error('Неверный пароль');
     setAdminPassword(password);
+    return true;
+  }
+
+  // ============================================================
+  // Смена пароля администратора
+  // ============================================================
+  async function changeAdminPassword(currentPassword, newPassword) {
+    if (mode === 'server') {
+      var r = await fetch('api/admin/change-password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-password': getAdminPassword()
+        },
+        body: JSON.stringify({ currentPassword: currentPassword, newPassword: newPassword })
+      });
+      var data = await r.json().catch(function () { return {}; });
+      if (!r.ok) throw new Error(data.error || 'Ошибка');
+      setAdminPassword(newPassword);
+      return true;
+    }
+    var saved = localStorage.getItem(LS_ADMIN_DEFAULT) || DEFAULT_ADMIN_PASSWORD;
+    if (currentPassword !== saved) throw new Error('Текущий пароль неверен');
+    if (String(newPassword).length < 6) throw new Error('Новый пароль должен быть не короче 6 символов');
+    localStorage.setItem(LS_ADMIN_DEFAULT, newPassword);
+    setAdminPassword(newPassword);
     return true;
   }
 
@@ -317,6 +353,7 @@
     getMode: function () { return mode; },
     isServer: function () { return mode === 'server'; },
     adminLogin: adminLogin,
+    changeAdminPassword: changeAdminPassword,
     getAdminPassword: getAdminPassword,
     clearAdminPassword: clearAdminPassword,
     listPolls: listPolls,
