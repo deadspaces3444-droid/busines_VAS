@@ -51,6 +51,33 @@
 
     <div id="adminPanel" class="hidden">
 
+      <!-- Смена пароля -->
+      <div class="card">
+        <h2>🔑 Смена пароля администратора</h2>
+        <p class="subtitle" id="changePwHint">
+          Пароль хранится на сервере в захешированном виде. После смены войти под старым паролем уже не получится.
+        </p>
+        <div class="row">
+          <div>
+            <label>Текущий пароль</label>
+            <input type="password" id="pwCurrent" placeholder="••••••••" autocomplete="current-password">
+          </div>
+          <div>
+            <label>Новый пароль (не короче 6 символов)</label>
+            <input type="password" id="pwNew" placeholder="••••••••" autocomplete="new-password">
+          </div>
+          <div>
+            <label>Повторите новый пароль</label>
+            <input type="password" id="pwNew2" placeholder="••••••••" autocomplete="new-password">
+          </div>
+        </div>
+        <div class="actions">
+          <button class="btn btn-dark" id="changePwBtn">Сменить пароль</button>
+        </div>
+        <div class="msg" id="changePwMsg"></div>
+      </div>
+
+      <!-- Создание опроса -->
       <div class="card">
         <h2>Создать опрос</h2>
         <p class="subtitle" id="createHint">
@@ -120,8 +147,8 @@
 
   document.getElementById('loginBtn').addEventListener('click', function () {
     var p = document.getElementById('passwordInput').value;
-    Storage.adminLogin(p).then(showPanel).catch(function () {
-      loginError.textContent = 'Неверный пароль';
+    Storage.adminLogin(p).then(showPanel).catch(function (err) {
+      loginError.textContent = err.message || 'Неверный пароль';
       loginError.className = 'msg msg-error show';
     });
   });
@@ -132,6 +159,44 @@
     Storage.clearAdminPassword(); showLogin();
   });
   document.getElementById('refreshPolls').addEventListener('click', loadPolls);
+
+  // --- Смена пароля ---
+  document.getElementById('changePwBtn').addEventListener('click', function () {
+    var msg = document.getElementById('changePwMsg');
+    msg.className = 'msg';
+    msg.textContent = '';
+
+    var cur = document.getElementById('pwCurrent').value;
+    var nw  = document.getElementById('pwNew').value;
+    var nw2 = document.getElementById('pwNew2').value;
+
+    function showPwMsg(text, isError) {
+      msg.textContent = text;
+      msg.className = 'msg ' + (isError ? 'msg-error' : 'msg-success') + ' show';
+    }
+
+    if (!cur) return showPwMsg('Введите текущий пароль', true);
+    if (!nw)  return showPwMsg('Введите новый пароль', true);
+    if (nw.length < 6) return showPwMsg('Новый пароль должен быть не короче 6 символов', true);
+    if (nw !== nw2) return showPwMsg('Пароли не совпадают', true);
+
+    var btn = this;
+    btn.disabled = true;
+    btn.textContent = 'Смена…';
+
+    Storage.changeAdminPassword(cur, nw).then(function () {
+      btn.disabled = false;
+      btn.textContent = 'Сменить пароль';
+      document.getElementById('pwCurrent').value = '';
+      document.getElementById('pwNew').value = '';
+      document.getElementById('pwNew2').value = '';
+      showPwMsg('Пароль успешно изменён', false);
+    }).catch(function (err) {
+      btn.disabled = false;
+      btn.textContent = 'Сменить пароль';
+      showPwMsg('Ошибка: ' + (err.message || 'Не удалось сменить пароль'), true);
+    });
+  });
 
   function addOption(prefill) {
     prefill = prefill || {};
@@ -346,9 +411,15 @@
 
   Storage.init().then(function () {
     document.getElementById('modeBadge').textContent = Storage.isServer() ? 'Серверный режим' : 'Локальный режим';
-    if (!Storage.isServer()) {
+
+    var pwHint = document.getElementById('changePwHint');
+    if (Storage.isServer()) {
+      pwHint.textContent = 'Пароль хранится на сервере (scrypt-хеш) и общий для всех администраторов.';
+    } else {
+      pwHint.textContent = 'Локальный режим: пароль хранится в этом браузере. Смена действует только здесь.';
       document.getElementById('loginHint').textContent = 'Локальный режим. Пароль по умолчанию: admin123.';
     }
+
     if (Storage.getAdminPassword()) {
       Storage.listPolls().then(showPanel).catch(showLogin);
     } else { showLogin(); }
