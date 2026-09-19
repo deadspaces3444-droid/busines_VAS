@@ -1,26 +1,32 @@
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
-const fs = require('fs');
 const crypto = require('crypto');
 const http = require('http');
 const https = require('https');
+const { createClient } = require('@supabase/supabase-js');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const INITIAL_ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
 
 const ROOT = __dirname;
-const DATA_DIR = path.join(ROOT, '.data');
-const UPLOAD_DIR = path.join(ROOT, '.uploads');
-const DB_FILE = path.join(DATA_DIR, 'db.json');
 
-fs.mkdirSync(DATA_DIR, { recursive: true });
-fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_KEY;
 
-// ============================================================
-// Хеширование пароля (scrypt, встроенный в crypto)
-// ============================================================
+if (!SUPABASE_URL || !SUPABASE_KEY) {
+  console.error('❌ Не заданы SUPABASE_URL и SUPABASE_KEY');
+  process.exit(1);
+}
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
+  auth: { persistSession: false, autoRefreshToken: false }
+});
+
+const DB_ROW_ID = 'main';
+const STORAGE_BUCKET = 'images';
+
 function hashPassword(password) {
   const salt = crypto.randomBytes(16);
   const hash = crypto.scryptSync(password, salt, 64);
@@ -36,67 +42,83 @@ function verifyPassword(password, stored) {
     const actual = crypto.scryptSync(password, salt, 64);
     if (actual.length !== expected.length) return false;
     return crypto.timingSafeEqual(actual, expected);
-  } catch (e) {
-    return false;
-  }
+  } catch (e) { return false; }
 }
 
-// ============================================================
-// База данных (JSON-файл, атомарная запись)
-// ============================================================
 function defaultDb() {
-  return {
-    adminPasswordHash: null,
-    polls: {}
-  };
+  return { adminPasswordHash: null, polls: {}, memories: {} };
 }
 
-function loadDb() {
-  let db;
-  try {
-    db = JSON.parse(fs.readFileSync(DB_FILE, 'utf-8'));
-  } catch (e) {
-    db = defaultDb();
-  }
+function normalizeDb(db) {
   if (!db || typeof db !== 'object') db = defaultDb();
   if (typeof db.polls !== 'object' || db.polls === null) db.polls = {};
+  if (typeof db.memories !== 'object' || db.memories === null) db.memories = {};
   if (typeof db.adminPasswordHash !== 'string') db.adminPasswordHash = null;
-
-  // миграция: votes должен быть массивом записей
   Object.keys(db.polls).forEach(t => {
     const p = db.polls[t];
     if (!Array.isArray(p.votes)) p.votes = [];
     if (!Array.isArray(p.options)) p.options = [];
+    if (!Array.isArray(p.groups)) p.groups = [];
+    if (!Array.isArray(p.declinedVotes)) p.declinedVotes = [];
   });
   return db;
 }
 
-function saveDb(db) {
-  const tmp = DB_FILE + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(db, null, 2));
-  fs.renameSync(tmp, DB_FILE);
+async function loadDb() {
+  const { data, error } = await supabase
+    .from('app_db')
+    .select('data')
+    .eq('id', DB_ROW_ID)
+    .maybeSingle();
+
+  if (error) {
+    console.error('❌ Ошибка чтения из Supabase:', error.message);
+    throw new Error('Не удалось прочитать данные');
+  }
+  if (!data || !data.data) return defaultDb();
+  return normalizeDb(data.data);
 }
 
-// Первый запуск: задаём начальный пароль, если хеша ещё нет
-(function ensureInitialPassword() {
-  if (!fs.existsSync(DB_FILE)) {
-    const db = defaultDb();
-    db.adminPasswordHash = hashPassword(INITIAL_ADMIN_PASSWORD);
-    saveDb(db);
-    console.log('Инициализирована база, пароль администратора: ' + INITIAL_ADMIN_PASSWORD);
-    return;
+async function saveDb(db) {
+  const { error } = await supabase
+    .from('app_db')
+    .upsert(
+      { id: DB_ROW_ID, data: db, updated_at: new Date().toISOString() },
+      { onConflict: 'id' }
+    );
+
+  if (error) {
+    console.error('❌ Ошибка записи в Supabase:', error.message);
+    throw new Error('Не удалось сохранить данные');
   }
-  const db = loadDb();
-  if (!db.adminPasswordHash) {
-    db.adminPasswordHash = hashPassword(INITIAL_ADMIN_PASSWORD);
-    saveDb(db);
-    console.log('Установлен начальный пароль администратора: ' + INITIAL_ADMIN_PASSWORD);
+  console.log('💾 База сохранена');
+}
+
+(async function ensureInitialPassword() {
+  try {
+    const db = await loadDb();
+    if (!db.adminPasswordHash) {
+      db.adminPasswordHash = hashPassword(INITIAL_ADMIN_PASSWORD);
+      await saveDb(db);
+      console.log('✅ Установлен начальный пароль: ' + INITIAL_ADMIN_PASSWORD);
+    } else {
+      console.log('✅ База загружена');
+    }
+  } catch (err) {
+    console.error('❌ Не удалось инициализировать базу:', err.message);
   }
 })();
 
-// ============================================================
-// SSRF-защита и парсинг ссылок
-// ============================================================
+function getPhase(poll) {
+  if (!poll.isOpen) return 'closed';
+  const now = Date.now();
+  const sEnd = poll.suggestEndsAt ? new Date(poll.suggestEndsAt).getTime() : null;
+  const vEnd = poll.voteEndsAt ? new Date(poll.voteEndsAt).getTime() : null;
+  if (sEnd && now < sEnd) return 'suggest';
+  if (vEnd && now >= vEnd) return 'closed';
+  return 'vote';
+}
+
 function isPrivateHost(host) {
   host = String(host || '').toLowerCase();
   if (!host) return true;
@@ -159,6 +181,7 @@ function decodeEntities(s) {
     .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
     .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCharCode(parseInt(n, 16)));
 }
+
 function getMeta(html, prop) {
   const p = prop.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const re1 = new RegExp('<meta[^>]+(?:property|name)=["\']' + p + '["\'][^>]*?content=["\']([^"\']*)["\']', 'i');
@@ -167,110 +190,223 @@ function getMeta(html, prop) {
   m = html.match(re2); if (m) return decodeEntities(m[1]);
   return null;
 }
-function absoluteUrl(u, base) { try { return new URL(u, base).toString(); } catch { return null; } }
+
+function absoluteUrl(u, base) {
+  try { return new URL(u, base).toString(); } catch { return null; }
+}
+
+function collectAllImages(html, baseUrl) {
+  const found = new Map();
+  function push(url, w, h, source) {
+    const abs = absoluteUrl(url, baseUrl);
+    if (!abs) return;
+    if (!/^https?:/i.test(abs)) return;
+    if (abs.startsWith('data:')) return;
+    if (/\.svg(\?|$)/i.test(abs)) return;
+    if (found.has(abs)) {
+      const cur = found.get(abs);
+      if (!cur.width && w) cur.width = w;
+      if (!cur.height && h) cur.height = h;
+      return;
+    }
+    found.set(abs, { url: abs, width: w || 0, height: h || 0, size: 0, source: source || 'img' });
+  }
+  const imgRe = /<img\b([^>]*)>/gi;
+  let m;
+  while ((m = imgRe.exec(html)) !== null) {
+    const attrs = m[1];
+    const src = (attrs.match(/\bsrc=["']([^"']+)["']/i) || [])[1];
+    const srcset = (attrs.match(/\bsrcset=["']([^"']+)["']/i) || [])[1];
+    const width = Number((attrs.match(/\bwidth=["']?(\d+)/i) || [])[1]) || 0;
+    const height = Number((attrs.match(/\bheight=["']?(\d+)/i) || [])[1]) || 0;
+    if (src) push(decodeEntities(src), width, height, 'img');
+    if (srcset) {
+      const parts = srcset.split(',').map(s => s.trim()).filter(Boolean);
+      let best = null;
+      parts.forEach(p => {
+        const [u, d] = p.split(/\s+/);
+        const w = d && /(\d+)w/.test(d) ? Number(d.match(/(\d+)w/)[1]) : 0;
+        if (!best || w > best.w) best = { u, w };
+      });
+      if (best && best.u) push(decodeEntities(best.u), best.w, 0, 'srcset');
+    }
+    const lazy = (attrs.match(/\bdata-(?:src|original|lazy-src)=["']([^"']+)["']/i) || [])[1];
+    if (lazy && /^https?:|^\//.test(lazy)) push(decodeEntities(lazy), width, height, 'lazy');
+  }
+  const sourceRe = /<source\b([^>]*)>/gi;
+  while ((m = sourceRe.exec(html)) !== null) {
+    const attrs = m[1];
+    const srcset = (attrs.match(/\bsrcset=["']([^"']+)["']/i) || [])[1];
+    if (!srcset) continue;
+    const parts = srcset.split(',').map(s => s.trim()).filter(Boolean);
+    let best = null;
+    parts.forEach(p => {
+      const [u, d] = p.split(/\s+/);
+      const w = d && /(\d+)w/.test(d) ? Number(d.match(/(\d+)w/)[1]) : 0;
+      if (!best || w > best.w) best = { u, w };
+    });
+    if (best && best.u) push(decodeEntities(best.u), best.w, 0, 'source');
+  }
+  const list = [...found.values()];
+  list.sort((a, b) => {
+    const areaA = a.width * a.height;
+    const areaB = b.width * b.height;
+    if (areaA && areaB) return areaB - areaA;
+    if (areaA && !areaB) return -1;
+    if (!areaA && areaB) return 1;
+    return 0;
+  });
+  return list.slice(0, 30);
+}
 
 function parseMeta(html, baseUrl) {
   let title = getMeta(html, 'og:title') || getMeta(html, 'twitter:title') ||
     (html.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1];
   title = title ? decodeEntities(title).replace(/\s+/g, ' ').trim().slice(0, 200) : '';
-
   let desc = getMeta(html, 'og:description') || getMeta(html, 'twitter:description') || getMeta(html, 'description');
   desc = desc ? decodeEntities(desc).replace(/\s+/g, ' ').trim().slice(0, 1000) : '';
-
-  let img = getMeta(html, 'og:image:secure_url') || getMeta(html, 'og:image:url') ||
+  let mainImg = getMeta(html, 'og:image:secure_url') || getMeta(html, 'og:image:url') ||
     getMeta(html, 'og:image') || getMeta(html, 'twitter:image') || getMeta(html, 'twitter:image:src');
-  if (!img) {
-    const m = html.match(/<img[^>]+src=["\']([^"\']+)["\']/i);
-    if (m) img = decodeEntities(m[1]);
+  mainImg = absoluteUrl(mainImg, baseUrl);
+  const allImages = collectAllImages(html, baseUrl);
+  if (mainImg && !allImages.some(x => x.url === mainImg)) {
+    allImages.unshift({ url: mainImg, size: 0, width: 0, height: 0, source: 'og' });
   }
-  return { title, description: desc, image: absoluteUrl(img, baseUrl) };
+  return {
+    title,
+    description: desc,
+    image: mainImg || (allImages[0] ? allImages[0].url : null),
+    images: allImages
+  };
 }
 
-// ============================================================
-// Multer (загрузка картинок)
-// ============================================================
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, UPLOAD_DIR),
-  filename: (req, file, cb) => {
-    const ext = (path.extname(file.originalname) || '.jpg').toLowerCase();
-    cb(null, crypto.randomBytes(16).toString('hex') + ext);
+function extractFilenameFromUrl(url) {
+  if (!url) return null;
+  const marker = '/storage/v1/object/public/' + STORAGE_BUCKET + '/';
+  const idx = url.indexOf(marker);
+  if (idx === -1) return null;
+  return decodeURIComponent(url.substring(idx + marker.length));
+}
+
+function collectUsedImages(db) {
+  const used = new Set();
+  Object.values(db.polls || {}).forEach(p => {
+    (p.options || []).forEach(o => {
+      const fn = extractFilenameFromUrl(o.image);
+      if (fn) used.add(fn);
+    });
+  });
+  Object.values(db.memories || {}).forEach(m => {
+    const fn = extractFilenameFromUrl(m.cover);
+    if (fn) used.add(fn);
+  });
+  return used;
+}
+
+async function removeImagesFromStorage(filenames) {
+  if (!filenames || !filenames.length) return 0;
+  const { error } = await supabase.storage.from(STORAGE_BUCKET).remove(filenames);
+  if (error) return 0;
+  return filenames.length;
+}
+
+async function listAllImages() {
+  const all = [];
+  const pageSize = 100;
+  let offset = 0;
+  while (true) {
+    const { data, error } = await supabase.storage
+      .from(STORAGE_BUCKET)
+      .list('', { limit: pageSize, offset, sortBy: { column: 'name', order: 'asc' } });
+    if (error) break;
+    if (!data || !data.length) break;
+    data.forEach(f => all.push({ name: f.name, size: Number((f.metadata && f.metadata.size) || 0) }));
+    if (data.length < pageSize) break;
+    offset += pageSize;
   }
-});
+  return all;
+}
+
 const upload = multer({
-  storage, limits: { fileSize: 8 * 1024 * 1024 },
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (req, file, cb) => /^image\//.test(file.mimetype) ? cb(null, true) : cb(new Error('Только изображения'))
 });
 
-// ============================================================
-// Middleware
-// ============================================================
-app.use(express.json({ limit: '2mb' }));
-app.use('/api/uploads', express.static(UPLOAD_DIR));
+app.use(express.json({ limit: '10mb' }));
 app.use(express.static(ROOT, { dotfiles: 'ignore', index: 'index.html' }));
 
-function adminAuth(req, res, next) {
-  const pass = req.headers['x-admin-password'] || req.query.password;
-  if (!pass) return res.status(401).json({ error: 'Требуется пароль' });
-  const db = loadDb();
-  if (!verifyPassword(pass, db.adminPasswordHash)) {
-    return res.status(401).json({ error: 'Неверный пароль' });
+async function adminAuth(req, res, next) {
+  try {
+    const pass = req.headers['x-admin-password'] || req.query.password;
+    if (!pass) return res.status(401).json({ error: 'Требуется пароль' });
+    const db = await loadDb();
+    if (!verifyPassword(pass, db.adminPasswordHash)) {
+      return res.status(401).json({ error: 'Неверный пароль' });
+    }
+    next();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-  next();
 }
 
 function normalizeName(n) {
   return String(n || '').trim().replace(/\s+/g, ' ').slice(0, 100);
 }
 
-// ============================================================
-// Ping (для определения режима клиентом)
-// ============================================================
-app.get('/api/ping', (req, res) => res.json({ ok: true, server: 'beeline-surveys' }));
+app.get('/api/ping', (req, res) => res.json({ ok: true, server: 'beeline-surveys', storage: 'supabase' }));
 
-// ============================================================
-// Проверка пароля (для входа админа)
-// ============================================================
-app.post('/api/admin/login', (req, res) => {
-  const pass = req.body && req.body.password;
-  if (!pass) return res.status(400).json({ error: 'Пароль обязателен' });
-  const db = loadDb();
-  if (!verifyPassword(pass, db.adminPasswordHash)) {
-    return res.status(401).json({ error: 'Неверный пароль' });
+app.post('/api/admin/login', async (req, res) => {
+  try {
+    const pass = req.body && req.body.password;
+    if (!pass) return res.status(400).json({ error: 'Пароль обязателен' });
+    const db = await loadDb();
+    if (!verifyPassword(pass, db.adminPasswordHash)) {
+      return res.status(401).json({ error: 'Неверный пароль' });
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-  res.json({ ok: true });
 });
 
-// ============================================================
-// Смена пароля администратора
-// ============================================================
-app.post('/api/admin/change-password', adminAuth, (req, res) => {
-  const { currentPassword, newPassword } = req.body || {};
-  if (!currentPassword || !newPassword) {
-    return res.status(400).json({ error: 'Укажите текущий и новый пароль' });
+app.post('/api/admin/change-password', adminAuth, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body || {};
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'Укажите текущий и новый пароль' });
+    }
+    if (String(newPassword).length < 6) {
+      return res.status(400).json({ error: 'Новый пароль не короче 6 символов' });
+    }
+    const db = await loadDb();
+    if (!verifyPassword(currentPassword, db.adminPasswordHash)) {
+      return res.status(401).json({ error: 'Текущий пароль неверен' });
+    }
+    db.adminPasswordHash = hashPassword(newPassword);
+    await saveDb(db);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-  if (String(newPassword).length < 6) {
-    return res.status(400).json({ error: 'Новый пароль должен быть не короче 6 символов' });
-  }
-  const db = loadDb();
-  if (!verifyPassword(currentPassword, db.adminPasswordHash)) {
-    return res.status(401).json({ error: 'Текущий пароль неверен' });
-  }
-  db.adminPasswordHash = hashPassword(newPassword);
-  saveDb(db);
-  res.json({ ok: true });
 });
 
-// ============================================================
-// Загрузка картинок
-// ============================================================
-app.post('/api/admin/upload', adminAuth, upload.single('image'), (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'Файл не загружен' });
-  res.json({ url: 'api/uploads/' + req.file.filename });
+app.post('/api/admin/upload', adminAuth, upload.single('image'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'Файл не загружен' });
+    const ext = (path.extname(req.file.originalname) || '.jpg').toLowerCase();
+    const filename = crypto.randomBytes(16).toString('hex') + ext;
+    const { error } = await supabase.storage
+      .from(STORAGE_BUCKET)
+      .upload(filename, req.file.buffer, { contentType: req.file.mimetype, upsert: false });
+    if (error) return res.status(500).json({ error: 'Не удалось загрузить картинку' });
+    const { data: urlData } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(filename);
+    res.json({ url: urlData.publicUrl });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// ============================================================
-// Парсинг ссылки
-// ============================================================
 app.post('/api/admin/fetch-link', adminAuth, (req, res) => {
   const url = (req.body && req.body.url || '').trim();
   if (!url) return res.status(400).json({ error: 'URL обязателен' });
@@ -279,146 +415,710 @@ app.post('/api/admin/fetch-link', adminAuth, (req, res) => {
     .catch(err => res.status(400).json({ error: err.message || 'Не удалось загрузить' }));
 });
 
-// ============================================================
-// CRUD опросов
-// ============================================================
-app.post('/api/admin/polls', adminAuth, (req, res) => {
-  const { title, description, options } = req.body;
-  if (!title || !Array.isArray(options) || options.length < 2) {
-    return res.status(400).json({ error: 'Нужны название и минимум 2 варианта' });
+app.post('/api/admin/fetch-album-preview', adminAuth, (req, res) => {
+  const url = (req.body && req.body.url || '').trim();
+  if (!url) return res.status(400).json({ error: 'URL обязателен' });
+  fetchHtml(url, 5)
+    .then(r => {
+      const meta = parseMeta(r.html, r.baseUrl);
+      res.json({ title: meta.title, description: meta.description, image: meta.image, images: meta.images || [] });
+    })
+    .catch(err => res.status(400).json({ error: err.message || 'Не удалось получить превью' }));
+});
+
+app.post('/api/admin/polls', adminAuth, async (req, res) => {
+  try {
+    const { title, description, options } = req.body;
+    if (!title || !Array.isArray(options) || options.length < 2) {
+      return res.status(400).json({ error: 'Нужны название и минимум 2 варианта' });
+    }
+    const token = crypto.randomBytes(6).toString('hex');
+    const db = await loadDb();
+    const groups = Array.isArray(req.body.groups)
+      ? req.body.groups.map(g => String(g || '').trim().slice(0, 100)).filter(Boolean)
+      : [];
+    const suggestHours = Math.max(0, Number(req.body.suggestHours) || 0);
+    const voteDays = Math.max(0, Number(req.body.voteDays) || 0);
+    const now = Date.now();
+    const suggestEndsAt = suggestHours > 0 ? new Date(now + suggestHours * 3600 * 1000).toISOString() : null;
+    const voteEndsAt = voteDays > 0 ? new Date(now + (suggestHours * 3600 + voteDays * 86400) * 1000).toISOString() : null;
+
+    db.polls[token] = {
+      token,
+      title: String(title).slice(0, 200),
+      description: String(description || '').slice(0, 2000),
+      askGroup: req.body.askGroup !== false,
+      groups,
+      suggestHours,
+      voteDays,
+      suggestEndsAt,
+      voteEndsAt,
+      options: options.map((o, i) => ({
+        id: 'opt_' + i,
+        title: String(o.title || '').slice(0, 200),
+        description: String(o.description || '').slice(0, 1000),
+        type: o.type === 'check' ? 'check' : 'deposit',
+        budget: Number(o.budget) || 0,
+        image: o.image || null,
+        sourceUrl: o.sourceUrl || null
+      })),
+      votes: [],
+      declinedVotes: [],
+      createdAt: new Date().toISOString(),
+      isOpen: true
+    };
+    await saveDb(db);
+    res.json({ token });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-  const token = crypto.randomBytes(6).toString('hex');
-  const db = loadDb();
-  db.polls[token] = {
-    token,
-    title: String(title).slice(0, 200),
-    description: String(description || '').slice(0, 2000),
-    options: options.map((o, i) => ({
-      id: 'opt_' + i,
-      title: String(o.title || '').slice(0, 200),
-      description: String(o.description || '').slice(0, 1000),
-      budget: Number(o.budget) || 0,
-      image: o.image || null,
-      sourceUrl: o.sourceUrl || null
-    })),
-    votes: [],
-    createdAt: new Date().toISOString(),
-    isOpen: true
-  };
-  saveDb(db);
-  res.json({ token });
 });
 
-app.get('/api/admin/polls', adminAuth, (req, res) => {
-  const db = loadDb();
-  res.json(Object.values(db.polls).map(p => ({
-    token: p.token,
-    title: p.title,
-    createdAt: p.createdAt,
-    isOpen: p.isOpen,
-    totalVotes: (p.votes || []).length
-  })).sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
-});
-
-app.delete('/api/admin/polls/:token', adminAuth, (req, res) => {
-  const db = loadDb();
-  if (!db.polls[req.params.token]) return res.status(404).json({ error: 'Не найдено' });
-  delete db.polls[req.params.token];
-  saveDb(db);
-  res.json({ ok: true });
-});
-
-app.patch('/api/admin/polls/:token', adminAuth, (req, res) => {
-  const db = loadDb();
-  const poll = db.polls[req.params.token];
-  if (!poll) return res.status(404).json({ error: 'Не найдено' });
-  if (typeof req.body.isOpen === 'boolean') poll.isOpen = req.body.isOpen;
-  saveDb(db);
-  res.json({ ok: true });
-});
-
-app.post('/api/admin/polls/:token/reset', adminAuth, (req, res) => {
-  const db = loadDb();
-  const poll = db.polls[req.params.token];
-  if (!poll) return res.status(404).json({ error: 'Не найдено' });
-  poll.votes = [];
-  saveDb(db);
-  res.json({ ok: true });
-});
-
-// ============================================================
-// Публичное: опрос и голосование
-// ============================================================
-app.get('/api/polls/:token', (req, res) => {
-  const db = loadDb();
-  const poll = db.polls[req.params.token];
-  if (!poll) return res.status(404).json({ error: 'Опрос не найден' });
-  res.json({
-    token: poll.token,
-    title: poll.title,
-    description: poll.description,
-    options: poll.options,
-    isOpen: poll.isOpen,
-    totalVotes: (poll.votes || []).length
-  });
-});
-
-app.post('/api/polls/:token/vote', (req, res) => {
-  const db = loadDb();
-  const poll = db.polls[req.params.token];
-  if (!poll) return res.status(404).json({ error: 'Опрос не найден' });
-  if (!poll.isOpen) return res.status(403).json({ error: 'Опрос закрыт' });
-
-  const { optionId } = req.body || {};
-  const name = normalizeName(req.body && req.body.name);
-  if (!name) return res.status(400).json({ error: 'Укажите фамилию' });
-  if (!poll.options.some(o => o.id === optionId)) {
-    return res.status(400).json({ error: 'Неверный вариант' });
+app.get('/api/admin/polls', adminAuth, async (req, res) => {
+  try {
+    const db = await loadDb();
+    res.json(Object.values(db.polls).map(p => ({
+      token: p.token,
+      title: p.title,
+      description: p.description,
+      createdAt: p.createdAt,
+      isOpen: p.isOpen,
+      phase: getPhase(p),
+      suggestEndsAt: p.suggestEndsAt || null,
+      voteEndsAt: p.voteEndsAt || null,
+      totalVotes: (p.votes || []).reduce((s, v) => s + (typeof v.weight === 'number' ? v.weight : (v.plusOne ? 2 : 1)), 0),
+      optionsCount: (p.options || []).filter(o => !o.pending).length,
+      pendingCount: (p.options || []).filter(o => o.pending).length
+    })).sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-  if (!Array.isArray(poll.votes)) poll.votes = [];
-
-  const lower = name.toLowerCase();
-  if (poll.votes.some(v => String(v.name || '').toLowerCase() === lower)) {
-    return res.status(409).json({ error: 'Эта фамилия уже голосовала' });
-  }
-
-  poll.votes.push({ name, optionId, at: new Date().toISOString() });
-  saveDb(db);
-  res.json({ ok: true });
 });
 
-app.get('/api/polls/:token/results', (req, res) => {
-  const db = loadDb();
-  const poll = db.polls[req.params.token];
-  if (!poll) return res.status(404).json({ error: 'Опрос не найден' });
+app.put('/api/admin/polls/:token', adminAuth, async (req, res) => {
+  try {
+    const db = await loadDb();
+    const poll = db.polls[req.params.token];
+    if (!poll) return res.status(404).json({ error: 'Опрос не найден' });
 
-  const votes = Array.isArray(poll.votes) ? poll.votes : [];
-  const totalVotes = votes.length;
+    const { title, description, options, isOpen } = req.body;
+    if (title !== undefined) poll.title = String(title).slice(0, 200);
+    if (description !== undefined) poll.description = String(description || '').slice(0, 2000);
+    if (typeof isOpen === 'boolean') poll.isOpen = isOpen;
+    if (typeof req.body.askGroup === 'boolean') poll.askGroup = req.body.askGroup;
 
-  const results = poll.options.map(o => {
-    const optVotes = votes.filter(v => v.optionId === o.id);
-    const cnt = optVotes.length;
-    return Object.assign({}, o, {
-      votes: cnt,
-      perPerson: cnt > 0 ? Math.round(o.budget / cnt) : 0,
-      voters: optVotes.map(v => v.name)
+    if (Array.isArray(req.body.groups)) {
+      poll.groups = req.body.groups.map(g => String(g || '').trim().slice(0, 100)).filter(Boolean);
+    }
+
+    if (req.body.suggestHours !== undefined || req.body.voteDays !== undefined) {
+      const sh = Math.max(0, Number(req.body.suggestHours ?? poll.suggestHours ?? 0) || 0);
+      const vd = Math.max(0, Number(req.body.voteDays ?? poll.voteDays ?? 0) || 0);
+      poll.suggestHours = sh;
+      poll.voteDays = vd;
+      const base = poll.createdAt ? new Date(poll.createdAt).getTime() : Date.now();
+      poll.suggestEndsAt = sh > 0 ? new Date(base + sh * 3600 * 1000).toISOString() : null;
+      poll.voteEndsAt = vd > 0 ? new Date(base + (sh * 3600 + vd * 86400) * 1000).toISOString() : null;
+    }
+
+    if (Array.isArray(options) && options.length >= 2) {
+      const oldOptions = poll.options || [];
+      poll.options = options.map((o, i) => {
+        const old = oldOptions.find(x => x.id === o.id) || oldOptions[i];
+        return {
+          id: (old && old.id) || ('opt_' + i),
+          title: String(o.title || '').slice(0, 200),
+          description: String(o.description || '').slice(0, 1000),
+          type: o.type === 'check' ? 'check' : 'deposit',
+          budget: Number(o.budget) || 0,
+          image: o.image || null,
+          sourceUrl: o.sourceUrl || null
+        };
+      });
+      const validIds = new Set(poll.options.map(o => o.id));
+      poll.votes = (poll.votes || []).filter(v => validIds.has(v.optionId));
+    }
+
+    await saveDb(db);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.patch('/api/admin/polls/:token', adminAuth, async (req, res) => {
+  try {
+    const db = await loadDb();
+    const poll = db.polls[req.params.token];
+    if (!poll) return res.status(404).json({ error: 'Опрос не найден' });
+    if (typeof req.body.isOpen === 'boolean') poll.isOpen = req.body.isOpen;
+    await saveDb(db);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/admin/polls/:token', adminAuth, async (req, res) => {
+  try {
+    const db = await loadDb();
+    const poll = db.polls[req.params.token];
+    if (!poll) return res.status(404).json({ error: 'Не найдено' });
+    const pollImages = new Set();
+    (poll.options || []).forEach(o => {
+      const fn = extractFilenameFromUrl(o.image);
+      if (fn) pollImages.add(fn);
     });
-  }).sort((a, b) => b.votes - a.votes);
+    delete db.polls[req.params.token];
+    const stillUsed = collectUsedImages(db);
+    const orphans = [...pollImages].filter(fn => !stillUsed.has(fn));
+    await saveDb(db);
+    const removed = await removeImagesFromStorage(orphans);
+    res.json({ ok: true, removedImages: removed });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
-  const winner = results[0] && results[0].votes > 0 ? results[0] : null;
+app.get('/api/admin/polls/:token/votes', adminAuth, async (req, res) => {
+  try {
+    const db = await loadDb();
+    const poll = db.polls[req.params.token];
+    if (!poll) return res.status(404).json({ error: 'Опрос не найден' });
+    const votes = (poll.votes || []).map((v, idx) => {
+      const opt = (poll.options || []).find(o => o.id === v.optionId);
+      return {
+        index: idx,
+        name: v.name,
+        group: v.group || '',
+        plusOne: !!v.plusOne,
+        label: (v.name + (v.group ? ' · ' + v.group : '') + (v.plusOne ? ' +1' : '')),
+        weight: typeof v.weight === 'number' ? v.weight : (v.plusOne ? 2 : 1),
+        optionId: v.optionId,
+        optionTitle: opt ? opt.title : '(удалено)',
+        at: v.at,
+        addedByAdmin: !!v.addedByAdmin
+      };
+    });
+    res.json({ votes, options: poll.options });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
-  res.json({
-    title: poll.title,
-    description: poll.description,
-    totalVotes,
-    results,
-    winner,
-    isOpen: poll.isOpen
-  });
+app.post('/api/admin/polls/:token/votes', adminAuth, async (req, res) => {
+  try {
+    const db = await loadDb();
+    const poll = db.polls[req.params.token];
+    if (!poll) return res.status(404).json({ error: 'Опрос не найден' });
+    const name = normalizeName(req.body && req.body.name);
+    const group = normalizeName(req.body && req.body.group);
+    const optionId = req.body && req.body.optionId;
+    const plusOne = !!(req.body && req.body.plusOne);
+    if (!name) return res.status(400).json({ error: 'Укажите фамилию' });
+    if (!optionId) return res.status(400).json({ error: 'Выберите вариант' });
+    if (!poll.options.some(o => o.id === optionId)) {
+      return res.status(400).json({ error: 'Такого варианта нет' });
+    }
+    if (poll.askGroup !== false) {
+      const available = Array.isArray(poll.groups) ? poll.groups : [];
+      if (!group) return res.status(400).json({ error: 'Выберите группу' });
+      if (available.length && !available.includes(group)) {
+        return res.status(400).json({ error: 'Такой группы нет' });
+      }
+    }
+    if (!Array.isArray(poll.votes)) poll.votes = [];
+    const lower = name.toLowerCase();
+    if (poll.votes.some(v => String(v.name || '').toLowerCase() === lower)) {
+      return res.status(409).json({ error: 'Эта фамилия уже голосовала' });
+    }
+    poll.votes.push({
+      name, group: group || '', optionId, plusOne,
+      weight: plusOne ? 2 : 1,
+      at: new Date().toISOString(),
+      addedByAdmin: true
+    });
+    await saveDb(db);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/admin/polls/:token/votes/:name', adminAuth, async (req, res) => {
+  try {
+    const db = await loadDb();
+    const poll = db.polls[req.params.token];
+    if (!poll) return res.status(404).json({ error: 'Опрос не найден' });
+    const target = decodeURIComponent(req.params.name).toLowerCase();
+    const idx = (poll.votes || []).findIndex(v => String(v.name || '').toLowerCase() === target);
+    if (idx === -1) return res.status(404).json({ error: 'Голос не найден' });
+    const removed = poll.votes[idx];
+    if (!Array.isArray(poll.declinedVotes)) poll.declinedVotes = [];
+    poll.declinedVotes.push({
+      name: removed.name,
+      group: removed.group || '',
+      optionId: removed.optionId,
+      plusOne: !!removed.plusOne,
+      weight: typeof removed.weight === 'number' ? removed.weight : (removed.plusOne ? 2 : 1),
+      votedAt: removed.at || null,
+      declinedAt: new Date().toISOString(),
+      reason: (req.body && req.body.reason) || 'отказ'
+    });
+    poll.votes.splice(idx, 1);
+    await saveDb(db);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/admin/polls/:token/reset', adminAuth, async (req, res) => {
+  try {
+    const db = await loadDb();
+    const poll = db.polls[req.params.token];
+    if (!poll) return res.status(404).json({ error: 'Не найдено' });
+    poll.votes = [];
+    await saveDb(db);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/admin/polls/:token/declines', adminAuth, async (req, res) => {
+  try {
+    const db = await loadDb();
+    const poll = db.polls[req.params.token];
+    if (!poll) return res.status(404).json({ error: 'Опрос не найден' });
+    res.json((poll.declinedVotes || []).slice().reverse());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/polls/:token/suggest', async (req, res) => {
+  try {
+    const db = await loadDb();
+    const poll = db.polls[req.params.token];
+    if (!poll) return res.status(404).json({ error: 'Опрос не найден' });
+    const phase = getPhase(poll);
+    if (phase !== 'suggest') {
+      return res.status(403).json({ error: phase === 'vote' ? 'Приём предложений завершён' : 'Опрос закрыт' });
+    }
+    const title = String((req.body && req.body.title) || '').trim().slice(0, 200);
+    const description = String((req.body && req.body.description) || '').trim().slice(0, 1000);
+    const budget = Number((req.body && req.body.budget) || 0) || 0;
+    const sourceUrl = String((req.body && req.body.sourceUrl) || '').trim().slice(0, 1000);
+    const image = String((req.body && req.body.image) || '').trim().slice(0, 1000);
+    const author = normalizeName((req.body && req.body.author) || '');
+    const type = (req.body && req.body.type) === 'check' ? 'check' : 'deposit';
+    if (!title) return res.status(400).json({ error: 'Укажите название' });
+    if (!sourceUrl) return res.status(400).json({ error: 'Укажите ссылку' });
+    if (!Array.isArray(poll.options)) poll.options = [];
+    const id = 'opt_' + crypto.randomBytes(4).toString('hex');
+    poll.options.push({
+      id, title, description, type, budget,
+      image: image || null,
+      sourceUrl,
+      pending: true,
+      suggestedBy: author || 'Сотрудник',
+      suggestedAt: new Date().toISOString()
+    });
+    await saveDb(db);
+    res.json({ ok: true, id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/admin/polls/:token/suggestions', adminAuth, async (req, res) => {
+  try {
+    const db = await loadDb();
+    const poll = db.polls[req.params.token];
+    if (!poll) return res.status(404).json({ error: 'Опрос не найден' });
+    res.json((poll.options || []).filter(o => o.pending));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/admin/polls/:token/suggestions/:id/approve', adminAuth, async (req, res) => {
+  try {
+    const db = await loadDb();
+    const poll = db.polls[req.params.token];
+    if (!poll) return res.status(404).json({ error: 'Опрос не найден' });
+    const opt = (poll.options || []).find(o => o.id === req.params.id);
+    if (!opt) return res.status(404).json({ error: 'Не найдено' });
+    delete opt.pending;
+    delete opt.suggestedBy;
+    delete opt.suggestedAt;
+    await saveDb(db);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/admin/polls/:token/suggestions/:id', adminAuth, async (req, res) => {
+  try {
+    const db = await loadDb();
+    const poll = db.polls[req.params.token];
+    if (!poll) return res.status(404).json({ error: 'Опрос не найден' });
+    const idx = (poll.options || []).findIndex(o => o.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: 'Не найдено' });
+    const opt = poll.options[idx];
+    const imageFn = extractFilenameFromUrl(opt.image);
+    poll.options.splice(idx, 1);
+    poll.votes = (poll.votes || []).filter(v => v.optionId !== req.params.id);
+    await saveDb(db);
+    if (imageFn) {
+      const stillUsed = collectUsedImages(db);
+      if (!stillUsed.has(imageFn)) await removeImagesFromStorage([imageFn]);
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/polls/:token', async (req, res) => {
+  try {
+    const db = await loadDb();
+    const poll = db.polls[req.params.token];
+    if (!poll) return res.status(404).json({ error: 'Опрос не найден' });
+    const pollDefaultType = poll.type === 'check' ? 'check' : 'deposit';
+    const phase = getPhase(poll);
+    res.json({
+      token: poll.token,
+      title: poll.title,
+      description: poll.description,
+      options: (poll.options || []).filter(o => !o.pending).map(o => ({
+        ...o,
+        type: o.type === 'check' ? 'check' : (o.type === 'deposit' ? 'deposit' : pollDefaultType)
+      })),
+      isOpen: poll.isOpen,
+      phase,
+      suggestEndsAt: poll.suggestEndsAt || null,
+      voteEndsAt: poll.voteEndsAt || null,
+      serverNow: new Date().toISOString(),
+      askGroup: poll.askGroup !== false,
+      groups: Array.isArray(poll.groups) ? poll.groups : [],
+      totalVotes: (poll.votes || []).reduce((s, v) => s + (typeof v.weight === 'number' ? v.weight : (v.plusOne ? 2 : 1)), 0)
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/polls/:token/vote', async (req, res) => {
+  try {
+    const db = await loadDb();
+    const poll = db.polls[req.params.token];
+    if (!poll) return res.status(404).json({ error: 'Опрос не найден' });
+    const phase = getPhase(poll);
+    if (phase === 'suggest') return res.status(403).json({ error: 'Голосование ещё не открыто' });
+    if (phase === 'closed') return res.status(403).json({ error: 'Опрос закрыт' });
+
+    const { optionId } = req.body || {};
+    const name = normalizeName(req.body && req.body.name);
+    const group = normalizeName(req.body && req.body.group);
+    const plusOne = !!(req.body && req.body.plusOne);
+
+    if (!name) return res.status(400).json({ error: 'Укажите фамилию' });
+    if (poll.askGroup !== false) {
+      const available = Array.isArray(poll.groups) ? poll.groups : [];
+      if (!group) return res.status(400).json({ error: 'Выберите группу' });
+      if (available.length && !available.includes(group)) {
+        return res.status(400).json({ error: 'Такой группы нет' });
+      }
+    }
+    if (!poll.options.some(o => o.id === optionId)) {
+      return res.status(400).json({ error: 'Неверный вариант' });
+    }
+    if (!Array.isArray(poll.votes)) poll.votes = [];
+    const lower = name.toLowerCase();
+    if (poll.votes.some(v => String(v.name || '').toLowerCase() === lower)) {
+      return res.status(409).json({ error: 'Эта фамилия уже голосовала' });
+    }
+    poll.votes.push({
+      name, group: group || '', optionId, plusOne,
+      weight: plusOne ? 2 : 1,
+      at: new Date().toISOString()
+    });
+    await saveDb(db);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/polls/:token/results', async (req, res) => {
+  try {
+    const db = await loadDb();
+    const poll = db.polls[req.params.token];
+    if (!poll) return res.status(404).json({ error: 'Опрос не найден' });
+
+    const votes = Array.isArray(poll.votes) ? poll.votes : [];
+    function weightOf(v) {
+      if (typeof v.weight === 'number' && v.weight > 0) return v.weight;
+      return v.plusOne ? 2 : 1;
+    }
+    const totalPeople = votes.reduce((s, v) => s + weightOf(v), 0);
+    const totalRecords = votes.length;
+    const pollDefaultType = poll.type === 'check' ? 'check' : 'deposit';
+
+    const results = poll.options.filter(o => !o.pending).map(o => {
+      const optVotes = votes.filter(v => v.optionId === o.id);
+      const people = optVotes.reduce((s, v) => s + weightOf(v), 0);
+      const optType = o.type === 'check' ? 'check' : (o.type === 'deposit' ? 'deposit' : pollDefaultType);
+      let perPerson = 0, total = 0;
+      if (optType === 'check') {
+        perPerson = Number(o.budget) || 0;
+        total = people * perPerson;
+      } else {
+        total = Number(o.budget) || 0;
+        perPerson = people > 0 ? Math.round(total / people) : 0;
+      }
+      return Object.assign({}, o, {
+        type: optType,
+        votes: people,
+        records: optVotes.length,
+        perPerson,
+        total,
+        voters: optVotes.map(v => ({
+          name: v.name,
+          group: v.group || '',
+          plusOne: !!v.plusOne,
+          weight: weightOf(v),
+          label: (v.name + (v.group ? ' · ' + v.group : '') + (v.plusOne ? ' +1' : ''))
+        }))
+      });
+    }).sort((a, b) => b.votes - a.votes);
+
+    const winner = results[0] && results[0].votes > 0 ? results[0] : null;
+
+    const groupStats = {};
+    votes.forEach(v => {
+      const g = v.group || 'Без группы';
+      const w = weightOf(v);
+      if (!groupStats[g]) groupStats[g] = { group: g, people: 0, records: 0 };
+      groupStats[g].people += w;
+      groupStats[g].records += 1;
+    });
+    const groups = Object.values(groupStats).sort((a, b) => b.people - a.people);
+
+    res.json({
+      title: poll.title,
+      description: poll.description,
+      totalVotes: totalPeople,
+      totalRecords,
+      results,
+      winner,
+      isOpen: poll.isOpen,
+      phase: getPhase(poll),
+      suggestEndsAt: poll.suggestEndsAt || null,
+      voteEndsAt: poll.voteEndsAt || null,
+      serverNow: new Date().toISOString(),
+      groups
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/memories', async (req, res) => {
+  try {
+    const db = await loadDb();
+    const memories = Object.values(db.memories || {}).sort((a, b) =>
+      String(b.date || '').localeCompare(String(a.date || '')));
+    res.json(memories);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/admin/memories', adminAuth, async (req, res) => {
+  try {
+    const db = await loadDb();
+    const memories = Object.values(db.memories || {}).sort((a, b) =>
+      String(b.date || '').localeCompare(String(a.date || '')));
+    res.json(memories);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/admin/memories', adminAuth, async (req, res) => {
+  try {
+    const { title, date, description, albumUrl, cover } = req.body || {};
+    if (!title || !date) return res.status(400).json({ error: 'Укажите название и дату' });
+    const id = crypto.randomBytes(6).toString('hex');
+    const db = await loadDb();
+    if (!db.memories) db.memories = {};
+    db.memories[id] = {
+      id,
+      title: String(title).slice(0, 200),
+      date: String(date).slice(0, 20),
+      description: String(description || '').slice(0, 2000),
+      albumUrl: String(albumUrl || '').slice(0, 1000),
+      cover: String(cover || '').slice(0, 1000) || null,
+      createdAt: new Date().toISOString()
+    };
+    await saveDb(db);
+    res.json({ id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/admin/memories/:id', adminAuth, async (req, res) => {
+  try {
+    const db = await loadDb();
+    const m = (db.memories || {})[req.params.id];
+    if (!m) return res.status(404).json({ error: 'Не найдено' });
+    const { title, date, description, albumUrl, cover } = req.body || {};
+    if (title !== undefined) m.title = String(title).slice(0, 200);
+    if (date !== undefined) m.date = String(date).slice(0, 20);
+    if (description !== undefined) m.description = String(description || '').slice(0, 2000);
+    if (albumUrl !== undefined) m.albumUrl = String(albumUrl || '').slice(0, 1000);
+    if (cover !== undefined) m.cover = String(cover || '').slice(0, 1000) || null;
+    await saveDb(db);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/admin/memories/:id', adminAuth, async (req, res) => {
+  try {
+    const db = await loadDb();
+    if (!db.memories || !db.memories[req.params.id]) {
+      return res.status(404).json({ error: 'Не найдено' });
+    }
+    const mem = db.memories[req.params.id];
+    const coverFn = extractFilenameFromUrl(mem.cover);
+    delete db.memories[req.params.id];
+    let removed = 0;
+    if (coverFn) {
+      const stillUsed = collectUsedImages(db);
+      if (!stillUsed.has(coverFn)) removed = await removeImagesFromStorage([coverFn]);
+    }
+    await saveDb(db);
+    res.json({ ok: true, removedImages: removed });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/admin/cleanup-images', adminAuth, async (req, res) => {
+  try {
+    const db = await loadDb();
+    const used = collectUsedImages(db);
+    const all = await listAllImages();
+    const orphans = all.filter(f => !used.has(f.name)).map(f => f.name);
+    if (!orphans.length) {
+      return res.json({ ok: true, removed: 0, total: all.length, message: 'Мусора нет' });
+    }
+    const removed = await removeImagesFromStorage(orphans);
+    res.json({ ok: true, removed, total: all.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/admin/storage-stats', adminAuth, async (req, res) => {
+  try {
+    const all = await listAllImages();
+    const totalBytes = all.reduce((s, f) => s + f.size, 0);
+    const db = await loadDb();
+    const used = collectUsedImages(db);
+    const orphanFiles = all.filter(f => !used.has(f.name));
+    const orphanBytes = orphanFiles.reduce((s, f) => s + f.size, 0);
+
+    const dbJson = JSON.stringify(db);
+    const dbSizeBytes = Buffer.byteLength(dbJson, 'utf-8');
+
+    const DB_LIMIT_BYTES = 500 * 1024 * 1024;
+    const STORAGE_LIMIT_BYTES = 1024 * 1024 * 1024;
+
+    const dbFree = Math.max(0, DB_LIMIT_BYTES - dbSizeBytes);
+    const storageFree = Math.max(0, STORAGE_LIMIT_BYTES - totalBytes);
+    const totalUsed = dbSizeBytes + totalBytes;
+    const totalLimit = DB_LIMIT_BYTES + STORAGE_LIMIT_BYTES;
+    const totalFree = Math.max(0, totalLimit - totalUsed);
+
+    const pct = (u, l) => l > 0 ? Math.min(100, Math.round(u / l * 1000) / 10) : 0;
+    const fmtBytes = (b) => {
+      if (b < 1024) return b + ' Б';
+      if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' КБ';
+      if (b < 1024 * 1024 * 1024) return (b / 1024 / 1024).toFixed(2) + ' МБ';
+      return (b / 1024 / 1024 / 1024).toFixed(2) + ' ГБ';
+    };
+
+    const votesCount = Object.values(db.polls).reduce((s, p) =>
+      s + (p.votes || []).reduce((a, v) => a + (typeof v.weight === 'number' ? v.weight : (v.plusOne ? 2 : 1)), 0), 0);
+
+    const allGroups = new Set();
+    Object.values(db.polls).forEach(p => {
+      (p.votes || []).forEach(v => { if (v.group) allGroups.add(v.group); });
+    });
+
+    res.json({
+      storage: {
+        totalFiles: all.length,
+        usedFiles: all.length - orphanFiles.length,
+        orphanFiles: orphanFiles.length,
+        usedBytes: totalBytes,
+        usedPretty: fmtBytes(totalBytes),
+        orphanBytes,
+        orphanPretty: fmtBytes(orphanBytes),
+        limitBytes: STORAGE_LIMIT_BYTES,
+        limitPretty: fmtBytes(STORAGE_LIMIT_BYTES),
+        freeBytes: storageFree,
+        freePretty: fmtBytes(storageFree),
+        percent: pct(totalBytes, STORAGE_LIMIT_BYTES)
+      },
+      database: {
+        usedBytes: dbSizeBytes,
+        usedPretty: fmtBytes(dbSizeBytes),
+        limitBytes: DB_LIMIT_BYTES,
+        limitPretty: fmtBytes(DB_LIMIT_BYTES),
+        freeBytes: dbFree,
+        freePretty: fmtBytes(dbFree),
+        percent: pct(dbSizeBytes, DB_LIMIT_BYTES),
+        pollsCount: Object.keys(db.polls).length,
+        votesCount,
+        memoriesCount: Object.keys(db.memories || {}).length,
+        groupsCount: allGroups.size
+      },
+      total: {
+        usedBytes: totalUsed,
+        usedPretty: fmtBytes(totalUsed),
+        limitBytes: totalLimit,
+        limitPretty: fmtBytes(totalLimit),
+        freeBytes: totalFree,
+        freePretty: fmtBytes(totalFree),
+        percent: pct(totalUsed, totalLimit)
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/admin/backup', adminAuth, async (req, res) => {
+  try {
+    const db = await loadDb();
+    res.setHeader('Content-Disposition', 'attachment; filename="db-backup-' + Date.now() + '.json"');
+    res.setHeader('Content-Type', 'application/json');
+    res.send(JSON.stringify(db, null, 2));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.listen(PORT, () => {
-  console.log('Сервер запущен: http://localhost:' + PORT);
-  console.log('Данные: ' + DATA_DIR);
-  console.log('Загрузки: ' + UPLOAD_DIR);
+  console.log('🚀 Сервер: http://localhost:' + PORT);
+  console.log('📦 Хранилище: Supabase');
 });
