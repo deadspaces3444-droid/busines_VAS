@@ -12,23 +12,22 @@
   <aside class="sidebar">
     <div class="sidebar-logo">
       <a href="index.html" style="text-decoration:none">
-        <svg class="bb-logo" viewBox="0 0 200 56" xmlns="http://www.w3.org/2000/svg" aria-label="Билайн Бизнес">
+        <svg class="bb-logo" viewBox="0 0 200 56" xmlns="http://www.w3.org/2000/svg">
           <g transform="translate(0,8)">
             <circle cx="20" cy="20" r="20" fill="#FFCC00"/>
             <path d="M4 13 Q20 10 36 13" stroke="#0A0A0A" stroke-width="3" fill="none" stroke-linecap="round"/>
             <path d="M2 21 Q20 18 38 21" stroke="#0A0A0A" stroke-width="3" fill="none" stroke-linecap="round"/>
             <path d="M4 29 Q20 26 36 29" stroke="#0A0A0A" stroke-width="3" fill="none" stroke-linecap="round"/>
           </g>
-          <text x="50" y="28" font-family="Arial, sans-serif" font-weight="900" font-size="20"
-                letter-spacing="-0.8" fill="#ffffff">билайн</text>
-          <text x="50" y="44" font-family="Arial, sans-serif" font-weight="600" font-size="9"
-                letter-spacing="3.5" fill="#FFCC00">БИЗНЕС</text>
+          <text x="50" y="28" font-family="Arial, sans-serif" font-weight="900" font-size="20" fill="#ffffff">билайн</text>
+          <text x="50" y="44" font-family="Arial, sans-serif" font-weight="600" font-size="9" letter-spacing="3.5" fill="#FFCC00">БИЗНЕС</text>
         </svg>
       </a>
       <div class="sidebar-office">VAS <span>Саратов / Калуга</span></div>
     </div>
     <nav class="sidebar-nav">
       <a href="index.html" class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Главная</span></a>
+      <a href="memories.html" class="nav-item"><span class="nav-icon">📸</span><span class="nav-label">Воспоминания</span></a>
       <a href="admin.html" class="nav-item"><span class="nav-icon">⚙️</span><span class="nav-label">Админ-панель</span></a>
     </nav>
     <div class="sidebar-footer"><div class="mode-badge" id="modeBadge">…</div></div>
@@ -47,10 +46,35 @@
           <a class="survey-link" id="shareLink" href="#"></a>
         </div>
 
+        <div class="phase-timer" id="phaseTimer">
+          <div class="phase-timer-icon" id="phaseIcon">⏱</div>
+          <div class="phase-timer-body">
+            <div class="phase-timer-label" id="phaseLabel">Загрузка…</div>
+            <div class="phase-timer-value" id="phaseValue"></div>
+          </div>
+        </div>
+
         <div class="voter-block">
           <label for="voterName">Ваша фамилия <span style="color:var(--bb-red)">*</span></label>
           <input type="text" id="voterName" maxlength="100" placeholder="Например: Иванов" autocomplete="off">
-          <div class="voter-hint">Повторное голосование под одной фамилией невозможно.</div>
+
+          <div id="groupBlock">
+            <label for="voterGroup">Ваша группа <span style="color:var(--bb-red)">*</span></label>
+            <select id="voterGroup">
+              <option value="">— выберите группу —</option>
+            </select>
+            <div class="voter-hint">Если вашей группы нет в списке — обратитесь к администратору.</div>
+          </div>
+
+          <label class="plusone-row" for="plusOneCheck">
+            <input type="checkbox" id="plusOneCheck">
+            <span>➕ Я приду с ещё одним человеком (+1)</span>
+          </label>
+
+          <div class="voter-hint">
+            Повторное голосование под одной фамилией невозможно.
+            При отметке «+1» ваш голос считается за 2 — в результатах вы увидите «Фамилия · Группа +1».
+          </div>
         </div>
 
         <div class="msg msg-error" id="voteError"></div>
@@ -58,18 +82,24 @@
 
         <button class="btn btn-primary btn-block" id="voteBtn" disabled>Проголосовать</button>
         <p class="hint" id="voteHint">Укажите фамилию и выберите вариант</p>
+
+        <div style="text-align:center;margin-top:16px" id="suggestWrap">
+          <button class="btn btn-ghost" id="suggestBtn">➕ Предложить своё место</button>
+        </div>
       </div>
     </section>
 
     <section class="hidden" id="resultSection">
       <div class="card">
         <h1>Результаты</h1>
-        <p class="subtitle">Всего проголосовало: <b id="totalVotes">0</b></p>
+        <p class="subtitle">Всего человек: <b id="totalVotes">0</b></p>
 
         <div id="winnerBox"></div>
 
         <h3 style="margin:20px 0 8px">Детали по всем вариантам</h3>
         <table class="votes-table" id="votesTable"></table>
+
+        <div id="groupsBlock" style="margin-top:24px"></div>
 
         <div class="voters-section">
           <h3>Кто голосовал</h3>
@@ -82,7 +112,62 @@
         <p class="hint text-center">Спасибо за участие!</p>
       </div>
     </section>
+
+    <footer class="app-footer">
+      <span class="author">Сергеев С.В</span>
+    </footer>
   </main>
+</div>
+
+<!-- Модалка предложения -->
+<div class="modal-overlay" id="suggestModal">
+  <div class="modal" style="max-width:560px">
+    <div class="modal-head">
+      <h2>➕ Предложить своё место</h2>
+      <button class="modal-close" id="suggestClose">✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="subtitle" style="margin-bottom:14px">
+        Ваше предложение появится в опросе после проверки администратором.
+      </p>
+
+      <label>Название <span style="color:var(--bb-red)">*</span></label>
+      <input type="text" id="sugTitle" maxlength="200" placeholder="Например: Кафе «Прага»">
+
+      <label>Тип расчёта <span style="color:var(--bb-red)">*</span></label>
+      <select id="sugType">
+        <option value="deposit">🏦 Депозит — общая сумма на всех</option>
+        <option value="check">🧾 Средний чек — цена за человека</option>
+      </select>
+      <div class="hint" id="sugTypeHint">Введите общую сумму, которая делится на всех участников.</div>
+
+      <label id="sugBudgetLabel">Общий бюджет, ₽</label>
+      <input type="number" id="sugBudget" min="0" step="100" value="0">
+
+      <label>Описание (необязательно)</label>
+      <textarea id="sugDesc" maxlength="1000" placeholder="Почему стоит пойти именно сюда"></textarea>
+
+      <label>Ссылка на страницу места <span style="color:var(--bb-red)">*</span></label>
+      <div class="opt-link-row">
+        <input type="url" id="sugUrl" placeholder="https://..." required>
+        <button type="button" class="btn btn-dark btn-sm" id="sugFetchBtn">Загрузить</button>
+      </div>
+      <div class="hint" id="sugFetchHint">
+        По ссылке автоматически подтянется картинка со страницы места.
+      </div>
+
+      <div id="sugPreview"></div>
+
+      <label>Ваша фамилия (необязательно)</label>
+      <input type="text" id="sugAuthor" maxlength="100" placeholder="Иванов">
+
+      <div class="msg" id="sugMsg"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost btn-sm" id="suggestCancelBtn">Отмена</button>
+      <button class="btn btn-primary btn-sm" id="suggestSendBtn">Отправить</button>
+    </div>
+  </div>
 </div>
 
 <script src="storage.js"></script>
@@ -94,6 +179,11 @@
   var token = params.get('t');
   var poll = null;
   var selectedId = null;
+  var askGroup = false;
+  var pollPhase = null;
+  var phaseTarget = null;
+  var timerInterval = null;
+  var serverOffset = 0;
 
   var voteSection   = document.getElementById('voteSection');
   var resultSection = document.getElementById('resultSection');
@@ -104,6 +194,17 @@
   var voteHint      = document.getElementById('voteHint');
   var voteError     = document.getElementById('voteError');
   var voterNameEl   = document.getElementById('voterName');
+  var voterGroupEl  = document.getElementById('voterGroup');
+  var groupBlock    = document.getElementById('groupBlock');
+  var plusOneEl     = document.getElementById('plusOneCheck');
+
+  var phaseTimer = document.getElementById('phaseTimer');
+  var phaseIcon  = document.getElementById('phaseIcon');
+  var phaseLabel = document.getElementById('phaseLabel');
+  var phaseValue = document.getElementById('phaseValue');
+
+  var suggestModal = document.getElementById('suggestModal');
+  var sugFetchedImage = null;
 
   function escapeHtml(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -112,13 +213,16 @@
   }
   function escapeAttr(s) { return escapeHtml(s); }
   function fmt(n) { return Number(n || 0).toLocaleString('ru-RU'); }
+  function pad(n) { return n < 10 ? '0' + n : String(n); }
 
   function updateVoteBtnState() {
     var hasName = voterNameEl.value.trim().length > 0;
     var hasOption = !!selectedId;
-    voteBtn.disabled = !(hasName && hasOption);
-    if (!hasName && !hasOption) voteHint.textContent = 'Укажите фамилию и выберите вариант';
+    var hasGroup = !askGroup || voterGroupEl.value !== '';
+    voteBtn.disabled = !(hasName && hasOption && hasGroup);
+    if (!hasName && !hasOption && !hasGroup) voteHint.textContent = 'Заполните все поля';
     else if (!hasName) voteHint.textContent = 'Укажите фамилию';
+    else if (askGroup && !hasGroup) voteHint.textContent = 'Выберите группу';
     else if (!hasOption) voteHint.textContent = 'Выберите вариант';
     else voteHint.textContent = 'Всё готово — можно голосовать';
   }
@@ -144,6 +248,7 @@
     poll = data;
     if (!poll.isOpen) return showFatal('Опрос закрыт');
     renderVoteForm();
+    applyPhase(data);
   })
   .catch(function (err) { showFatal(err.message || 'Опрос не найден'); });
 
@@ -156,6 +261,98 @@
       '<p>Обратитесь к администратору.</p></div>';
   }
 
+  // ============================================================
+  // Таймер фаз
+  // ============================================================
+  function serverNow() { return Date.now() + serverOffset; }
+  function fmtRemaining(ms) {
+    if (ms <= 0) return '00:00:00';
+    var total = Math.floor(ms / 1000);
+    var d = Math.floor(total / 86400);
+    var h = Math.floor((total % 86400) / 3600);
+    var m = Math.floor((total % 3600) / 60);
+    var s = total % 60;
+    if (d > 0) return d + ' д ' + pad(h) + ':' + pad(m) + ':' + pad(s);
+    return pad(h) + ':' + pad(m) + ':' + pad(s);
+  }
+
+  function applyPhase(data) {
+    if (data.serverNow) {
+      serverOffset = new Date(data.serverNow).getTime() - Date.now();
+    }
+    pollPhase = data.phase || 'vote';
+    phaseTarget = null;
+    phaseTimer.className = 'phase-timer phase-' + pollPhase;
+
+    var suggestWrap = document.getElementById('suggestWrap');
+
+    if (pollPhase === 'suggest') {
+      phaseIcon.textContent = '📝';
+      phaseLabel.textContent = 'Приём предложений';
+      if (data.suggestEndsAt) {
+        phaseTarget = new Date(data.suggestEndsAt).getTime();
+      }
+      hideVoteUI();
+      suggestWrap.style.display = '';
+    } else if (pollPhase === 'vote') {
+      phaseIcon.textContent = '🗳';
+      phaseLabel.textContent = 'Голосование';
+      if (data.voteEndsAt) {
+        phaseTarget = new Date(data.voteEndsAt).getTime();
+      }
+      showVoteUI();
+      suggestWrap.style.display = 'none';
+    } else {
+      phaseIcon.textContent = '🔒';
+      phaseLabel.textContent = 'Опрос завершён';
+      phaseValue.textContent = '';
+      hideVoteUI();
+      suggestWrap.style.display = 'none';
+    }
+    startTimer();
+  }
+
+  function startTimer() {
+    if (timerInterval) clearInterval(timerInterval);
+    tick();
+    timerInterval = setInterval(tick, 1000);
+  }
+  function tick() {
+    if (!pollPhase) return;
+    if (pollPhase === 'closed') { phaseValue.textContent = ''; return; }
+    if (!phaseTarget) { phaseValue.textContent = 'Без ограничения по времени'; return; }
+    var remain = phaseTarget - serverNow();
+    phaseValue.textContent = fmtRemaining(remain);
+    if (remain <= 0) {
+      clearInterval(timerInterval);
+      setTimeout(function () {
+        Storage.getPoll(token).then(function (data) {
+          poll = data;
+          applyPhase(data);
+        });
+      }, 800);
+    }
+  }
+
+  var voterBlock = document.querySelector('.voter-block');
+  function hideVoteUI() {
+    if (voterBlock) voterBlock.style.display = 'none';
+    if (optionsGrid) optionsGrid.style.display = 'none';
+    if (voteBtn) voteBtn.style.display = 'none';
+    if (voteHint) voteHint.style.display = 'none';
+    if (voteError) voteError.style.display = 'none';
+  }
+  function showVoteUI() {
+    if (voterBlock) voterBlock.style.display = '';
+    if (optionsGrid) optionsGrid.style.display = '';
+    if (voteBtn) voteBtn.style.display = '';
+    if (voteHint) voteHint.style.display = '';
+    if (voteError) voteError.style.display = '';
+  }
+
+  // ============================================================
+  // Форма голосования
+  // ============================================================
   function renderVoteForm() {
     loadingEl.classList.add('hidden');
     voteContent.classList.remove('hidden');
@@ -166,6 +363,18 @@
     var share = document.getElementById('shareLink');
     share.textContent = location.href;
     share.href = location.href;
+
+    var groups = Array.isArray(poll.groups) ? poll.groups : [];
+    askGroup = (poll.askGroup !== false) && groups.length > 0;
+    if (!askGroup) {
+      groupBlock.style.display = 'none';
+    } else {
+      groupBlock.style.display = '';
+      voterGroupEl.innerHTML = '<option value="">— выберите группу —</option>' +
+        groups.map(function (g) {
+          return '<option value="' + escapeAttr(g) + '">' + escapeHtml(g) + '</option>';
+        }).join('');
+    }
 
     optionsGrid.innerHTML = '';
     poll.options.forEach(function (opt) {
@@ -179,10 +388,19 @@
         '<div class="option-body">' +
           '<h3>' + escapeHtml(opt.title) + '</h3>' +
           '<p>' + escapeHtml(opt.description || '') + '</p>' +
-          '<div class="option-budget">' +
-            '<span class="option-budget-label">Общий бюджет</span>' +
-            '<span class="option-budget-value">' + fmt(opt.budget) + ' ₽</span>' +
-          '</div>' +
+          (opt.type === 'check'
+            ? '<div class="option-budget">' +
+                '<span class="option-budget-label">🧾 Средний чек / чел.</span>' +
+                '<span class="option-budget-value">' + fmt(opt.budget) + ' ₽</span>' +
+              '</div>'
+            : '<div class="option-budget">' +
+                '<span class="option-budget-label">🏦 Общий бюджет</span>' +
+                '<span class="option-budget-value">' + fmt(opt.budget) + ' ₽</span>' +
+              '</div>') +
+          (opt.sourceUrl
+            ? '<a class="btn btn-ghost btn-sm option-details-btn" href="' + escapeAttr(opt.sourceUrl) + '" ' +
+                'target="_blank" rel="noopener" onclick="event.stopPropagation()">🔗 Подробнее</a>'
+            : '') +
         '</div>';
 
       card.addEventListener('click', function () {
@@ -198,6 +416,7 @@
     });
 
     voterNameEl.addEventListener('input', updateVoteBtnState);
+    voterGroupEl.addEventListener('change', updateVoteBtnState);
     updateVoteBtnState();
   }
 
@@ -210,7 +429,10 @@
     voteBtn.disabled = true;
     voteBtn.textContent = 'Отправка…';
 
-    Storage.vote(token, selectedId, name).then(function () {
+    var plusOne = plusOneEl.checked;
+    var group = askGroup ? voterGroupEl.value : '';
+
+    Storage.vote(token, selectedId, name, plusOne, group).then(function () {
       showResults();
     }).catch(function (err) {
       voteError.textContent = err.message || 'Ошибка';
@@ -227,7 +449,8 @@
     voteSection.classList.add('hidden');
     resultSection.classList.remove('hidden');
 
-    document.getElementById('totalVotes').textContent = data.totalVotes;
+    document.getElementById('totalVotes').textContent = data.totalVotes +
+      (data.totalRecords && data.totalRecords !== data.totalVotes ? ' (' + data.totalRecords + ' записей)' : '');
 
     var wb = document.getElementById('winnerBox');
     if (!data.winner) {
@@ -238,18 +461,36 @@
         ? '<div class="winner-image"><img src="' + escapeAttr(w.image) + '" alt=""></div>'
         : '<div class="winner-image">🏆</div>';
 
+      var budgetBlock;
+      if (w.type === 'check') {
+        budgetBlock =
+          '<div class="budget-highlight">' +
+            '<div>' +
+              '<div class="budget-label">🧾 Средний чек · ' + w.votes + ' чел.</div>' +
+              '<div class="budget-sub">' + fmt(w.perPerson) + ' ₽ × ' + w.votes + ' чел. = ' + fmt(w.total) + ' ₽ итого</div>' +
+            '</div>' +
+            '<div class="budget-value">' + fmt(w.total) + ' ₽</div>' +
+          '</div>';
+      } else {
+        budgetBlock =
+          '<div class="budget-highlight">' +
+            '<div>' +
+              '<div class="budget-label">🏦 Депозит · ' + w.votes + ' чел.</div>' +
+              '<div class="budget-sub">' + fmt(w.total) + ' ₽ ÷ ' + w.votes + ' чел. = ' + fmt(w.perPerson) + ' ₽ на человека</div>' +
+            '</div>' +
+            '<div class="budget-value">' + fmt(w.perPerson) + ' ₽</div>' +
+          '</div>';
+      }
+
       wb.innerHTML =
         '<div class="winner-box">' + imgHtml +
           '<div class="winner-content">' +
             '<h2>🏆 ' + escapeHtml(w.title) + '</h2>' +
             '<p class="winner-desc">' + escapeHtml(w.description || '') + '</p>' +
-            '<div class="budget-highlight">' +
-              '<div>' +
-                '<div class="budget-label">Общий бюджет · ' + w.votes + ' чел. выбрали</div>' +
-                '<div class="budget-sub">' + fmt(w.budget) + ' ₽ ÷ ' + w.votes + ' чел. = ' + fmt(w.perPerson) + ' ₽ на человека</div>' +
-              '</div>' +
-              '<div class="budget-value">' + fmt(w.perPerson) + ' ₽</div>' +
-            '</div>' +
+            budgetBlock +
+            (w.sourceUrl
+              ? '<div style="margin-top:12px"><a class="btn btn-ghost btn-sm" href="' + escapeAttr(w.sourceUrl) + '" target="_blank" rel="noopener">🔗 Подробнее</a></div>'
+              : '') +
           '</div>' +
         '</div>';
     }
@@ -257,17 +498,35 @@
     var rows = '';
     data.results.forEach(function (r) {
       var isWinner = data.winner && r.id === data.winner.id;
+      var isCheck = r.type === 'check';
       rows +=
         '<tr class="' + (isWinner ? 'winner-row' : '') + '">' +
           '<td>' + escapeHtml(r.title) + '</td>' +
-          '<td>' + r.votes + '</td>' +
-          '<td>' + fmt(r.budget) + ' ₽</td>' +
-          '<td>' + (r.votes > 0 ? fmt(r.perPerson) + ' ₽' : '—') + '</td>' +
+          '<td>' + (isCheck ? '🧾' : '🏦') + '</td>' +
+          '<td>' + r.votes + (r.records && r.records !== r.votes ? ' (' + r.records + ')' : '') + '</td>' +
+          (isCheck
+            ? '<td>' + fmt(r.perPerson) + ' ₽/чел.</td><td>' + (r.votes > 0 ? fmt(r.total) + ' ₽' : '—') + '</td>'
+            : '<td>' + fmt(r.total) + ' ₽</td><td>' + (r.votes > 0 ? fmt(r.perPerson) + ' ₽/чел.' : '—') + '</td>') +
         '</tr>';
     });
     document.getElementById('votesTable').innerHTML =
-      '<thead><tr><th>Место</th><th>Голосов</th><th>Общий бюджет</th><th>На человека</th></tr></thead>' +
+      '<thead><tr><th>Место</th><th>Тип</th><th>Голосов</th><th>Сумма</th><th>На человека / Итого</th></tr></thead>' +
       '<tbody>' + rows + '</tbody>';
+
+    var groupsBox = document.getElementById('groupsBlock');
+    if (groupsBox) {
+      if (data.groups && data.groups.length) {
+        var gh = '<h3 style="margin:0 0 10px">🏢 Группы</h3>';
+        gh += '<table class="votes-table"><thead><tr><th>Группа</th><th>Человек</th><th>Записей</th></tr></thead><tbody>';
+        data.groups.forEach(function (g) {
+          gh += '<tr><td>' + escapeHtml(g.group) + '</td><td>' + g.people + '</td><td>' + g.records + '</td></tr>';
+        });
+        gh += '</tbody></table>';
+        groupsBox.innerHTML = gh;
+      } else {
+        groupsBox.innerHTML = '';
+      }
+    }
 
     var votersBox = document.getElementById('votersList');
     var anyVotes = data.results.some(function (r) { return r.votes > 0; });
@@ -277,19 +536,128 @@
       votersBox.innerHTML = data.results.map(function (r) {
         if (r.votes === 0) return '';
         var isWinner = data.winner && r.id === data.winner.id;
-        var chips = (r.voters || []).map(function (n) {
-          return '<span class="voter-chip">' + escapeHtml(n) + '</span>';
+        var chips = (r.voters || []).map(function (v) {
+          var label = (typeof v === 'object' && v !== null) ? (v.label || v.name) : v;
+          var cls = (typeof v === 'object' && v.plusOne) ? 'voter-chip plusone' : 'voter-chip';
+          return '<span class="' + cls + '">' + escapeHtml(label) + '</span>';
         }).join('');
         return '<div class="voters-group' + (isWinner ? ' winner' : '') + '">' +
           '<div class="vg-head">' +
             '<span class="vg-title">' + escapeHtml(r.title) + '</span>' +
-            '<span class="vg-count">' + r.votes + ' чел.</span>' +
+            '<span class="vg-count">' + r.votes + ' чел.' +
+              (r.records && r.records !== r.votes ? ' (' + r.records + ' записей)' : '') + '</span>' +
           '</div>' +
           '<div class="voters-chips">' + chips + '</div>' +
         '</div>';
       }).join('');
     }
   }
+
+  // ============================================================
+  // Форма предложения
+  // ============================================================
+  document.getElementById('suggestBtn').addEventListener('click', function () {
+    suggestModal.classList.add('show');
+    document.body.style.overflow = 'hidden';
+  });
+  function closeSuggestModal() {
+    suggestModal.classList.remove('show');
+    document.body.style.overflow = '';
+  }
+  document.getElementById('suggestClose').addEventListener('click', closeSuggestModal);
+  document.getElementById('suggestCancelBtn').addEventListener('click', closeSuggestModal);
+  suggestModal.addEventListener('click', function (e) { if (e.target === suggestModal) closeSuggestModal(); });
+
+  document.getElementById('sugType').addEventListener('change', function () {
+    var isCheck = this.value === 'check';
+    document.getElementById('sugBudgetLabel').textContent = isCheck
+      ? 'Средний чек на человека, ₽'
+      : 'Общий бюджет, ₽';
+    document.getElementById('sugTypeHint').textContent = isCheck
+      ? 'Введите цену за одного человека. Итог посчитается по числу проголосовавших.'
+      : 'Введите общую сумму, которая делится на всех участников.';
+  });
+
+  document.getElementById('sugFetchBtn').addEventListener('click', function () {
+    var url = document.getElementById('sugUrl').value.trim();
+    var hint = document.getElementById('sugFetchHint');
+    var preview = document.getElementById('sugPreview');
+    if (!url) { hint.textContent = 'Вставьте ссылку'; hint.style.color = 'var(--bb-red)'; return; }
+
+    var btn = this;
+    btn.disabled = true; btn.textContent = '…';
+    hint.textContent = 'Загрузка…';
+    hint.style.color = 'var(--bb-gray)';
+
+    Storage.fetchAlbumPreview(url).then(function (meta) {
+      btn.disabled = false; btn.textContent = 'Загрузить';
+      if (meta.image) {
+        sugFetchedImage = meta.image;
+        preview.innerHTML = '<img src="' + escapeAttr(meta.image) + '" ' +
+          'style="max-width:240px;max-height:150px;border-radius:8px;margin-top:8px;border:1px solid var(--bb-line)" ' +
+          'onerror="this.style.display=\'none\'">';
+        hint.textContent = '✓ Картинка подтянута со страницы';
+        hint.style.color = 'var(--bb-green)';
+      } else {
+        sugFetchedImage = null;
+        preview.innerHTML = '';
+        hint.textContent = '⚠ Картинка не найдена — предложение будет без фото';
+        hint.style.color = '#a16207';
+      }
+    }).catch(function (err) {
+      btn.disabled = false; btn.textContent = 'Загрузить';
+      sugFetchedImage = null;
+      preview.innerHTML = '';
+      hint.textContent = '⚠ ' + (err.message || 'Не удалось загрузить');
+      hint.style.color = 'var(--bb-red)';
+    });
+  });
+
+  document.getElementById('suggestSendBtn').addEventListener('click', function () {
+    var msg = document.getElementById('sugMsg');
+    msg.className = 'msg'; msg.textContent = '';
+
+    var type = document.getElementById('sugType').value;
+    var payload = {
+      title: document.getElementById('sugTitle').value.trim(),
+      description: document.getElementById('sugDesc').value.trim(),
+      type: type,
+      budget: Number(document.getElementById('sugBudget').value) || 0,
+      sourceUrl: document.getElementById('sugUrl').value.trim(),
+      image: sugFetchedImage || '',
+      author: document.getElementById('sugAuthor').value.trim() || 'Сотрудник'
+    };
+
+    function show(text, isError) {
+      msg.textContent = text;
+      msg.className = 'msg ' + (isError ? 'msg-error' : 'msg-success') + ' show';
+    }
+    if (!payload.title) return show('Укажите название места', true);
+    if (!payload.sourceUrl) return show('Укажите ссылку на страницу места', true);
+
+    var btn = this;
+    btn.disabled = true; btn.textContent = 'Отправка…';
+
+    Storage.suggestPlace(token, payload).then(function () {
+      btn.disabled = false; btn.textContent = 'Отправить';
+      show('✓ Спасибо! Ваше предложение отправлено администратору.', false);
+      document.getElementById('sugTitle').value = '';
+      document.getElementById('sugDesc').value = '';
+      document.getElementById('sugBudget').value = 0;
+      document.getElementById('sugUrl').value = '';
+      document.getElementById('sugType').value = 'deposit';
+      document.getElementById('sugBudgetLabel').textContent = 'Общий бюджет, ₽';
+      document.getElementById('sugTypeHint').textContent = 'Введите общую сумму, которая делится на всех участников.';
+      document.getElementById('sugAuthor').value = '';
+      document.getElementById('sugPreview').innerHTML = '';
+      document.getElementById('sugFetchHint').textContent = 'По ссылке автоматически подтянется картинка со страницы места.';
+      sugFetchedImage = null;
+      setTimeout(closeSuggestModal, 2000);
+    }).catch(function (err) {
+      btn.disabled = false; btn.textContent = 'Отправить';
+      show('Ошибка: ' + (err.message || ''), true);
+    });
+  });
 })();
 </script>
 </body>
