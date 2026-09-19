@@ -33,6 +33,9 @@
       <a href="index.html" class="nav-item active">
         <span class="nav-icon">🏠</span><span class="nav-label">Главная</span>
       </a>
+      <a href="memories.html" class="nav-item">
+        <span class="nav-icon">📸</span><span class="nav-label">Воспоминания</span>
+      </a>
       <a href="admin.html" class="nav-item">
         <span class="nav-icon">⚙️</span><span class="nav-label">Админ-панель</span>
       </a>
@@ -52,6 +55,10 @@
       <a class="btn btn-dark" href="admin.html">Перейти в админ-панель</a>
       <p class="hint" style="margin-top:22px;" id="modeHint"></p>
     </div>
+
+    <footer class="app-footer">
+      <span class="author">Сергеев С.В</span>
+    </footer>
   </main>
 
 </div>
@@ -63,11 +70,10 @@ Storage.init().then(function () {
   var hint  = document.getElementById('modeHint');
   if (Storage.isServer()) {
     badge.textContent = 'Серверный режим';
-    hint.textContent = 'Голоса и картинки хранятся на сервере — общие для всех устройств.';
+    hint.textContent = 'Голоса и картинки хранятся в Supabase — общие для всех устройств.';
   } else {
     badge.textContent = 'Локальный режим';
-    hint.textContent = 'Данные хранятся только в этом браузере (localStorage). ' +
-      'Для общего голосования сотрудников добавьте серверную часть.';
+    hint.textContent = 'Данные хранятся только в этом браузере (localStorage).';
   }
 });
 </script>
