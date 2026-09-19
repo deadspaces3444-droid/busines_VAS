@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Воспоминания — Билайн Бизнес</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="app">
+
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <a href="index.html" style="text-decoration:none">
+        <svg class="bb-logo" viewBox="0 0 200 56" xmlns="http://www.w3.org/2000/svg">
+          <g transform="translate(0,8)">
+            <circle cx="20" cy="20" r="20" fill="#FFCC00"/>
+            <path d="M4 13 Q20 10 36 13" stroke="#0A0A0A" stroke-width="3" fill="none" stroke-linecap="round"/>
+            <path d="M2 21 Q20 18 38 21" stroke="#0A0A0A" stroke-width="3" fill="none" stroke-linecap="round"/>
+            <path d="M4 29 Q20 26 36 29" stroke="#0A0A0A" stroke-width="3" fill="none" stroke-linecap="round"/>
+          </g>
+          <text x="50" y="28" font-family="Arial, sans-serif" font-weight="900" font-size="20" fill="#ffffff">билайн</text>
+          <text x="50" y="44" font-family="Arial, sans-serif" font-weight="600" font-size="9" letter-spacing="3.5" fill="#FFCC00">БИЗНЕС</text>
+        </svg>
+      </a>
+      <div class="sidebar-office">VAS <span>Саратов / Калуга</span></div>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="index.html" class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Главная</span></a>
+      <a href="memories.html" class="nav-item active"><span class="nav-icon">📸</span><span class="nav-label">Воспоминания</span></a>
+      <a href="admin.html" class="nav-item"><span class="nav-icon">⚙️</span><span class="nav-label">Админ-панель</span></a>
+    </nav>
+    <div class="sidebar-footer"><div class="mode-badge" id="modeBadge">…</div></div>
+  </aside>
+
+  <main class="content">
+
+    <div class="card">
+      <h1>📸 Воспоминания</h1>
+      <p class="subtitle">
+        Архив прошедших событий: даты, описания и ссылки на альбомы с фотографиями.
+      </p>
+
+      <div class="memories-search">
+        <input type="text" id="memSearch" placeholder="🔍 Поиск по названию или описанию">
+      </div>
+
+      <div id="memoriesList" class="memories-list">
+        <div class="loading">Загрузка…</div>
+      </div>
+    </div>
+
+    <footer class="app-footer">
+      <span class="author">Сергеев С.В</span>
+    </footer>
+  </main>
+</div>
+
+<script src="storage.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c];
+    });
+  }
+  function fmtDate(d) {
+    if (!d) return '';
+    try {
+      var dt = new Date(d);
+      if (isNaN(dt.getTime())) return d;
+      return dt.toLocaleDateString('ru-RU', { day: '2-digit', month: 'long', year: 'numeric' });
+    } catch (e) { return d; }
+  }
+  function hostOf(u) {
+    try { return new URL(u).hostname.replace(/^www\./, ''); } catch (e) { return 'ссылка'; }
+  }
+  function iconFor(url) {
+    var h = hostOf(url).toLowerCase();
+    if (h.indexOf('instagram') !== -1) return '📷';
+    if (h.indexOf('vk.com') !== -1 || h.indexOf('vk.ru') !== -1) return '🅥';
+    if (h.indexOf('google') !== -1) return '🖼';
+    if (h.indexOf('yandex') !== -1) return '☁️';
+    if (h.indexOf('dropbox') !== -1) return '📦';
+    if (h.indexOf('icloud') !== -1) return '☁️';
+    if (h.indexOf('flickr') !== -1) return '📸';
+    return '🔗';
+  }
+
+  var allMemories = [];
+
+  Storage.init().then(function () {
+    document.getElementById('modeBadge').textContent =
+      Storage.isServer() ? 'Серверный режим' : 'Локальный режим';
+    return Storage.listMemories();
+  }).then(function (list) {
+    allMemories = list || [];
+    renderList();
+  }).catch(function (err) {
+    document.getElementById('memoriesList').innerHTML =
+      '<div class="empty" style="color:var(--bb-red)">Не удалось загрузить: ' + esc(err.message) + '</div>';
+  });
+
+  document.getElementById('memSearch').addEventListener('input', renderList);
+
+  function renderList() {
+    var q = document.getElementById('memSearch').value.trim().toLowerCase();
+    var box = document.getElementById('memoriesList');
+    var filtered = allMemories;
+
+    if (q) {
+      filtered = allMemories.filter(function (m) {
+        return (m.title || '').toLowerCase().indexOf(q) !== -1 ||
+               (m.description || '').toLowerCase().indexOf(q) !== -1;
+      });
+    }
+
+    if (!filtered.length) {
+      box.innerHTML = q
+        ? '<div class="empty">Ничего не найдено по запросу «' + esc(q) + '».</div>'
+        : '<div class="empty">Пока нет ни одной записи. Добавьте первую в админ-панели.</div>';
+      return;
+    }
+
+    box.innerHTML = filtered.map(function (m) {
+      var coverHtml = m.cover
+        ? '<div class="memory-cover" style="background-image:url(&quot;' + esc(m.cover) + '&quot;);"></div>'
+        : '<div class="memory-cover memory-cover-empty">📸</div>';
+
+      var albumHtml = '';
+      if (m.albumUrl) {
+        var icon = iconFor(m.albumUrl);
+        var host = hostOf(m.albumUrl);
+        albumHtml =
+          '<a class="memory-album-btn" href="' + esc(m.albumUrl) + '" target="_blank" rel="noopener">' +
+            '<span class="memory-album-icon">' + icon + '</span>' +
+            '<span>Открыть альбом · ' + esc(host) + '</span>' +
+          '</a>';
+      }
+
+      return '' +
+        '<div class="memory-card">' +
+          coverHtml +
+          '<div class="memory-body">' +
+            '<div class="memory-date">' + esc(fmtDate(m.date)) + '</div>' +
+            '<h3 class="memory-title">' + esc(m.title) + '</h3>' +
+            (m.description ? '<p class="memory-desc">' + esc(m.description) + '</p>' : '') +
+            (albumHtml ? '<div class="memory-actions">' + albumHtml + '</div>' : '') +
+          '</div>' +
+        '</div>';
+    }).join('');
+  }
+})();
+</script>
+</body>
+</html>
