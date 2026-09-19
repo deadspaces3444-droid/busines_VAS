@@ -30,6 +30,7 @@
     </div>
     <nav class="sidebar-nav">
       <a href="index.html" class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Главная</span></a>
+      <a href="memories.html" class="nav-item"><span class="nav-icon">📸</span><span class="nav-label">Воспоминания</span></a>
       <a href="admin.html" class="nav-item active"><span class="nav-icon">⚙️</span><span class="nav-label">Админ-панель</span></a>
     </nav>
     <div class="sidebar-footer"><div class="mode-badge" id="modeBadge">…</div></div>
@@ -51,46 +52,82 @@
 
     <div id="adminPanel" class="hidden">
 
-      <!-- Смена пароля -->
       <div class="card">
         <h2>🔑 Смена пароля администратора</h2>
-        <p class="subtitle" id="changePwHint">
-          Пароль хранится на сервере в захешированном виде. После смены войти под старым паролем уже не получится.
-        </p>
+        <p class="subtitle" id="changePwHint">Пароль хранится на сервере в захешированном виде.</p>
         <div class="row">
           <div>
             <label>Текущий пароль</label>
-            <input type="password" id="pwCurrent" placeholder="••••••••" autocomplete="current-password">
+            <input type="password" id="pwCurrent" placeholder="••••••••">
           </div>
           <div>
-            <label>Новый пароль (не короче 6 символов)</label>
-            <input type="password" id="pwNew" placeholder="••••••••" autocomplete="new-password">
+            <label>Новый пароль (мин. 6 символов)</label>
+            <input type="password" id="pwNew" placeholder="••••••••">
           </div>
           <div>
             <label>Повторите новый пароль</label>
-            <input type="password" id="pwNew2" placeholder="••••••••" autocomplete="new-password">
+            <input type="password" id="pwNew2" placeholder="••••••••">
           </div>
         </div>
         <div class="actions">
           <button class="btn btn-dark" id="changePwBtn">Сменить пароль</button>
+          <a class="btn btn-ghost" id="backupBtn" href="#">📥 Скачать бэкап JSON</a>
         </div>
         <div class="msg" id="changePwMsg"></div>
       </div>
 
-      <!-- Создание опроса -->
+      <div class="card">
+        <h2>💾 Хранилище и обслуживание</h2>
+        <p class="subtitle">Информация о занятом и свободном месте в Supabase (Free: 500 МБ БД + 1 ГБ файлов).</p>
+        <div id="storagePanel" class="storage-panel">
+          <div class="hint">Нажмите «Обновить», чтобы загрузить статистику.</div>
+        </div>
+        <div class="actions">
+          <button class="btn btn-ghost" id="checkStorageBtn">📊 Обновить</button>
+          <button class="btn btn-dark" id="cleanupBtn">🧹 Удалить неиспользуемые картинки</button>
+        </div>
+        <div class="msg" id="cleanupMsg"></div>
+      </div>
+
       <div class="card">
         <h2>Создать опрос</h2>
-        <p class="subtitle" id="createHint">
-          Для каждого варианта укажите <b>общий бюджет</b> (стоимость места на всю группу).
-          Сумма на человека посчитается после голосования: <b>бюджет победителя ÷ число проголосовавших</b>.
-          Голосующие обязаны указать фамилию, повторное голосование под одной фамилией блокируется.
+        <p class="subtitle">
+          Для каждого варианта укажите <b>общий бюджет</b> (депозит) или <b>средний чек</b> (цена за человека).
+          Голосующие обязаны указать фамилию; повторное голосование под одной фамилией блокируется.
         </p>
 
         <label>Название опроса</label>
         <input type="text" id="pollTitle" placeholder="Например: Куда пойдём в пятницу?">
 
         <label>Описание (необязательно)</label>
-        <textarea id="pollDesc" placeholder="Краткое пояснение для сотрудников"></textarea>
+        <textarea id="pollDesc" placeholder="Краткое пояснение"></textarea>
+
+        <label style="margin-top:16px">⏱ Тайминг опроса</label>
+        <div class="row">
+          <div>
+            <label style="font-weight:400;margin-top:0">Приём предложений, часов (0 = отключить)</label>
+            <input type="number" id="pollSuggestHours" min="0" step="1" value="24">
+          </div>
+          <div>
+            <label style="font-weight:400;margin-top:0">Голосование, дней (0 = без ограничения)</label>
+            <input type="number" id="pollVoteDays" min="0" step="1" value="3">
+          </div>
+        </div>
+        <div class="hint">
+          Если приём предложений выключен (0), голосование откроется сразу.
+          Если голосование без ограничения (0), оно будет идти, пока вы не закроете опрос.
+        </div>
+
+        <label class="plusone-row" for="pollAskGroup" style="margin-top:12px">
+          <input type="checkbox" id="pollAskGroup" checked>
+          <span>🏢 Запрашивать у сотрудников группу</span>
+        </label>
+
+        <div id="pollGroupsBlock">
+          <label>Группы для выбора <span class="hint" style="font-weight:400;text-transform:none;letter-spacing:0">(по одной в строке)</span></label>
+          <textarea id="pollGroups" placeholder="VAS Саратов&#10;VAS Калуга&#10;VAS Пенза"></textarea>
+          <div class="hint">Сотрудник выберет одну из этих групп. Если поле пустое — запрос группы отключится.</div>
+        </div>
 
         <h3 style="margin-top:18px">Варианты мест</h3>
         <div id="optionsList"></div>
@@ -109,12 +146,132 @@
         <div id="pollsList"><div class="loading">Загрузка…</div></div>
       </div>
 
+      <div class="card">
+        <h2>📸 Воспоминания</h2>
+        <p class="subtitle">
+          Добавьте запись о прошедшем событии: дату, название, описание и ссылку на альбом с фотографиями
+          (Instagram, VK, Яндекс.Диск, Google Photos).
+        </p>
+
+        <div id="memoryForm">
+          <div class="row">
+            <div>
+              <label>Дата события <span style="color:var(--bb-red)">*</span></label>
+              <input type="date" id="memDate">
+            </div>
+            <div>
+              <label>Название <span style="color:var(--bb-red)">*</span></label>
+              <input type="text" id="memTitle" placeholder="Например: Поход в ресторан «Восток»">
+            </div>
+          </div>
+
+          <label>Ссылка на альбом (Instagram, VK, диск и т.п.)</label>
+          <div class="row">
+            <div style="flex:3">
+              <input type="url" id="memAlbumUrl" placeholder="https://www.instagram.com/p/...">
+            </div>
+            <div style="flex:0;min-width:auto">
+              <button type="button" class="btn btn-dark" id="memFetchPreview">🔍 Подтянуть превью</button>
+            </div>
+          </div>
+          <div class="hint" id="memPreviewHint"></div>
+
+          <label>Описание (необязательно)</label>
+          <textarea id="memDescription" placeholder="Пара слов о событии"></textarea>
+
+          <label>Обложка (URL картинки)</label>
+          <div class="opt-image-row">
+            <input type="url" id="memCover" placeholder="URL картинки или загрузите файл">
+            <label class="opt-file-label">📷 Файл<input type="file" accept="image/*" id="memCoverFile"></label>
+          </div>
+          <div id="memCoverPreview"></div>
+
+          <div class="actions">
+            <button class="btn btn-ghost" id="memCancelEdit" style="display:none">Отменить редактирование</button>
+            <button class="btn btn-primary" id="memSaveBtn" style="flex:1">💾 Сохранить</button>
+          </div>
+          <div class="msg" id="memMsg"></div>
+        </div>
+
+        <h3 style="margin-top:24px">Список воспоминаний</h3>
+        <div id="memoriesAdminList"><div class="loading">Загрузка…</div></div>
+      </div>
+
       <div class="text-center mb-16">
         <button class="btn btn-ghost" id="logoutBtn">Выйти</button>
       </div>
 
     </div>
+
+    <footer class="app-footer">
+      <span class="author">Сергеев С.В</span>
+    </footer>
   </main>
+</div>
+
+<!-- Модалка редактирования опроса -->
+<div class="modal-overlay" id="editModal">
+  <div class="modal" style="max-width:820px">
+    <div class="modal-head">
+      <h2>✏️ Редактирование опроса</h2>
+      <button class="modal-close" id="editCloseBtn">✕</button>
+    </div>
+    <div class="modal-body" id="editBody"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost btn-sm" id="editCancelBtn">Отмена</button>
+      <button class="btn btn-primary btn-sm" id="editSaveBtn">💾 Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<!-- Модалка голосов -->
+<div class="modal-overlay" id="votesModal">
+  <div class="modal" style="max-width:820px">
+    <div class="modal-head">
+      <h2>👥 Голоса</h2>
+      <button class="modal-close" id="votesCloseBtn">✕</button>
+    </div>
+    <div class="modal-body" id="votesBody"><div class="loading">Загрузка…</div></div>
+    <div class="modal-actions">
+      <button class="btn btn-primary btn-sm" id="votesAddManualBtn">➕ Добавить вручную</button>
+      <button class="btn btn-ghost btn-sm" id="votesRefreshBtn">🔄 Обновить</button>
+      <button class="btn btn-danger btn-sm" id="votesResetAllBtn">🗑 Сбросить все голоса</button>
+      <button class="btn btn-dark btn-sm" id="votesCloseBtn2">Закрыть</button>
+    </div>
+  </div>
+</div>
+
+<!-- Модалка предложений -->
+<div class="modal-overlay" id="suggestionsModal">
+  <div class="modal" style="max-width:820px">
+    <div class="modal-head">
+      <h2>🔔 Предложения мест</h2>
+      <button class="modal-close" id="suggestionsClose">✕</button>
+    </div>
+    <div class="modal-body" id="suggestionsBody">
+      <div class="loading">Загрузка…</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-dark btn-sm" id="suggestionsClose2">Закрыть</button>
+    </div>
+  </div>
+</div>
+
+<!-- Модалка выбора картинки -->
+<div class="modal-overlay" id="imagePickerModal">
+  <div class="modal" style="max-width:900px">
+    <div class="modal-head">
+      <h2>🖼 Выбор картинки со страницы</h2>
+      <button class="modal-close" id="imagePickerClose">✕</button>
+    </div>
+    <div class="modal-body" id="imagePickerBody">
+      <div class="loading">Загрузка…</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost btn-sm" id="imagePickerManualBtn">Указать URL вручную</button>
+      <button class="btn btn-dark btn-sm" id="imagePickerCancel">Отмена</button>
+    </div>
+  </div>
 </div>
 
 <script src="storage.js"></script>
@@ -127,8 +284,26 @@
   var loginError = document.getElementById('loginError');
   var optionsList = document.getElementById('optionsList');
 
+  var editModal = document.getElementById('editModal');
+  var editBody  = document.getElementById('editBody');
+
+  var votesModal = document.getElementById('votesModal');
+  var votesBody  = document.getElementById('votesBody');
+
+  var suggestionsModal = document.getElementById('suggestionsModal');
+  var suggestionsBody  = document.getElementById('suggestionsBody');
+
+  var imagePickerModal = document.getElementById('imagePickerModal');
+  var imagePickerBody  = document.getElementById('imagePickerBody');
+
+  var editingToken = null;
+  var votesToken = null;
+  var suggestionsToken = null;
+  var imagePickerTargetRow = null;
+  var editingMemoryId = null;
+
   function showLogin() { loginCard.classList.remove('hidden'); adminPanel.classList.add('hidden'); }
-  function showPanel() { loginCard.classList.add('hidden'); adminPanel.classList.remove('hidden'); loadPolls(); }
+  function showPanel() { loginCard.classList.add('hidden'); adminPanel.classList.remove('hidden'); loadPolls(); loadMemoriesAdmin(); }
 
   function escapeHtml(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -136,18 +311,28 @@
     });
   }
   function escapeAttr(s) { return escapeHtml(s); }
-
-  function updatePreview(row) {
-    var preview = row.querySelector('.opt-preview');
-    var img = row.dataset.image;
-    preview.innerHTML = img
-      ? '<img src="' + escapeAttr(img) + '" alt="preview" onerror="this.style.display=\'none\'">'
-      : '';
+  function fmt(n) { return Number(n || 0).toLocaleString('ru-RU'); }
+  function fmtDateRu(d) {
+    if (!d) return '';
+    try {
+      var dt = new Date(d);
+      if (isNaN(dt.getTime())) return d;
+      return dt.toLocaleDateString('ru-RU', { day: '2-digit', month: 'long', year: 'numeric' });
+    } catch (e) { return d; }
   }
 
+  // ============================================================
+  // Вход / выход
+  // ============================================================
   document.getElementById('loginBtn').addEventListener('click', function () {
     var p = document.getElementById('passwordInput').value;
-    Storage.adminLogin(p).then(showPanel).catch(function (err) {
+    Storage.adminLogin(p).then(function () {
+      loginCard.classList.add('hidden');
+      adminPanel.classList.remove('hidden');
+      loadPolls();
+      loadMemoriesAdmin();
+      document.getElementById('checkStorageBtn').click();
+    }).catch(function (err) {
       loginError.textContent = err.message || 'Неверный пароль';
       loginError.className = 'msg msg-error show';
     });
@@ -160,78 +345,185 @@
   });
   document.getElementById('refreshPolls').addEventListener('click', loadPolls);
 
-  // --- Смена пароля ---
+  // Бэкап
+  document.getElementById('backupBtn').addEventListener('click', function (e) {
+    e.preventDefault();
+    fetch('api/admin/backup', { headers: { 'x-admin-password': Storage.getAdminPassword() } })
+      .then(function (r) { if (!r.ok) throw new Error('Ошибка'); return r.blob(); })
+      .then(function (blob) {
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url; a.download = 'db-backup-' + Date.now() + '.json';
+        a.click(); URL.revokeObjectURL(url);
+      })
+      .catch(function (err) { alert('Не удалось скачать: ' + err.message); });
+  });
+
+  // ============================================================
+  // Смена пароля
+  // ============================================================
   document.getElementById('changePwBtn').addEventListener('click', function () {
     var msg = document.getElementById('changePwMsg');
-    msg.className = 'msg';
-    msg.textContent = '';
-
+    msg.className = 'msg'; msg.textContent = '';
     var cur = document.getElementById('pwCurrent').value;
     var nw  = document.getElementById('pwNew').value;
     var nw2 = document.getElementById('pwNew2').value;
-
-    function showPwMsg(text, isError) {
+    function show(text, isError) {
       msg.textContent = text;
       msg.className = 'msg ' + (isError ? 'msg-error' : 'msg-success') + ' show';
     }
+    if (!cur) return show('Введите текущий пароль', true);
+    if (!nw)  return show('Введите новый пароль', true);
+    if (nw.length < 6) return show('Минимум 6 символов', true);
+    if (nw !== nw2) return show('Пароли не совпадают', true);
 
-    if (!cur) return showPwMsg('Введите текущий пароль', true);
-    if (!nw)  return showPwMsg('Введите новый пароль', true);
-    if (nw.length < 6) return showPwMsg('Новый пароль должен быть не короче 6 символов', true);
-    if (nw !== nw2) return showPwMsg('Пароли не совпадают', true);
-
-    var btn = this;
-    btn.disabled = true;
-    btn.textContent = 'Смена…';
-
+    var btn = this; btn.disabled = true; btn.textContent = 'Смена…';
     Storage.changeAdminPassword(cur, nw).then(function () {
-      btn.disabled = false;
-      btn.textContent = 'Сменить пароль';
+      btn.disabled = false; btn.textContent = 'Сменить пароль';
       document.getElementById('pwCurrent').value = '';
       document.getElementById('pwNew').value = '';
       document.getElementById('pwNew2').value = '';
-      showPwMsg('Пароль успешно изменён', false);
+      show('Пароль изменён', false);
     }).catch(function (err) {
-      btn.disabled = false;
-      btn.textContent = 'Сменить пароль';
-      showPwMsg('Ошибка: ' + (err.message || 'Не удалось сменить пароль'), true);
+      btn.disabled = false; btn.textContent = 'Сменить пароль';
+      show('Ошибка: ' + (err.message || ''), true);
     });
   });
 
-  function addOption(prefill) {
-    prefill = prefill || {};
-    var row = document.createElement('div');
-    row.className = 'option-row';
-    row.innerHTML =
+  // ============================================================
+  // Статистика хранилища
+  // ============================================================
+  document.getElementById('checkStorageBtn').addEventListener('click', function () {
+    var panel = document.getElementById('storagePanel');
+    panel.innerHTML = '<div class="hint">Загрузка…</div>';
+
+    fetch('api/admin/storage-stats', { headers: { 'x-admin-password': Storage.getAdminPassword() } })
+      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, data: d }; }); })
+      .then(function (res) {
+        if (!res.ok) throw new Error(res.data.error || 'Ошибка');
+        renderStoragePanel(res.data);
+      })
+      .catch(function (err) {
+        panel.innerHTML = '<div class="hint" style="color:var(--bb-red)">Не удалось: ' +
+          escapeHtml(err.message) + '</div>';
+      });
+  });
+
+  function renderStoragePanel(s) {
+    function bar(percent, label, usedPretty, limitPretty, freePretty) {
+      var color = percent < 60 ? '#16a34a' : (percent < 85 ? '#eab308' : '#dc2626');
+      return '' +
+        '<div class="storage-block">' +
+          '<div class="storage-head">' +
+            '<span class="storage-label">' + label + '</span>' +
+            '<span class="storage-values"><b>' + usedPretty + '</b> из ' + limitPretty +
+              ' · свободно <b>' + freePretty + '</b></span>' +
+          '</div>' +
+          '<div class="storage-bar">' +
+            '<div class="storage-bar-fill" style="width:' + percent + '%;background:' + color + ';"></div>' +
+          '</div>' +
+          '<div class="storage-percent" style="color:' + color + '">' + percent + '% занято</div>' +
+        '</div>';
+    }
+    var html = '';
+    html += bar(s.total.percent, '📊 Всего', s.total.usedPretty, s.total.limitPretty, s.total.freePretty);
+    html += bar(s.database.percent, '🗄 База данных', s.database.usedPretty, s.database.limitPretty, s.database.freePretty);
+    html += '<div class="storage-meta">Опросов: <b>' + s.database.pollsCount + '</b> · ' +
+      'голосов: <b>' + s.database.votesCount + '</b> · ' +
+      'воспоминаний: <b>' + (s.database.memoriesCount || 0) + '</b> · ' +
+      'групп: <b>' + (s.database.groupsCount || 0) + '</b></div>';
+    html += bar(s.storage.percent, '🖼 Картинки', s.storage.usedPretty, s.storage.limitPretty, s.storage.freePretty);
+    html += '<div class="storage-meta">Файлов: <b>' + s.storage.totalFiles + '</b>' +
+      (s.storage.orphanFiles > 0
+        ? ' · <span style="color:var(--bb-red)">мусор: ' + s.storage.orphanFiles + ' (' + s.storage.orphanPretty + ')</span>'
+        : '') + '</div>';
+    document.getElementById('storagePanel').innerHTML = html;
+  }
+
+  document.getElementById('cleanupBtn').addEventListener('click', function () {
+    if (!confirm('Удалить все картинки, не используемые ни в одном опросе или воспоминании?')) return;
+    var msg = document.getElementById('cleanupMsg');
+    var btn = this;
+    btn.disabled = true; btn.textContent = 'Удаление…';
+    msg.className = 'msg'; msg.textContent = '';
+
+    fetch('api/admin/cleanup-images', {
+      method: 'POST',
+      headers: { 'x-admin-password': Storage.getAdminPassword() }
+    })
+      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, data: d }; }); })
+      .then(function (res) {
+        btn.disabled = false; btn.textContent = '🧹 Удалить неиспользуемые картинки';
+        if (!res.ok) throw new Error(res.data.error || 'Ошибка');
+        msg.textContent = res.data.removed > 0 ? 'Удалено файлов: ' + res.data.removed : (res.data.message || 'Мусора нет');
+        msg.className = 'msg msg-success show';
+        document.getElementById('checkStorageBtn').click();
+      })
+      .catch(function (err) {
+        btn.disabled = false; btn.textContent = '🧹 Удалить неиспользуемые картинки';
+        msg.textContent = 'Ошибка: ' + err.message;
+        msg.className = 'msg msg-error show';
+      });
+  });
+
+  // ============================================================
+  // Опции опроса
+  // ============================================================
+  function updatePreview(row) {
+    var preview = row.querySelector('.opt-preview');
+    var img = row.dataset.image;
+    preview.innerHTML = img
+      ? '<img src="' + escapeAttr(img) + '" alt="preview" onerror="this.style.display=\'none\'">'
+      : '';
+  }
+
+  function optionRowHTML(o) {
+    o = o || {};
+    var rowType = o.type === 'check' ? 'check' : 'deposit';
+    var budgetLabel = rowType === 'check' ? 'Средний чек на человека, ₽' : 'Общий бюджет, ₽';
+    return '' +
       '<button type="button" class="remove-btn">Удалить</button>' +
       '<div class="opt-link-row">' +
-        '<input type="url" class="opt-link" placeholder="🔗 Ссылка на страницу места (название, описание, картинка)">' +
+        '<input type="url" class="opt-link" placeholder="🔗 Ссылка на страницу места" value="' + escapeAttr(o.sourceUrl || '') + '">' +
         '<button type="button" class="btn btn-dark btn-sm opt-fetch-btn">Загрузить</button>' +
       '</div>' +
       '<div class="opt-fetch-msg"></div>' +
       '<label>Название</label>' +
-      '<input type="text" class="opt-title" placeholder="Например: Ресторан «Восток»">' +
+      '<input type="text" class="opt-title" placeholder="Например: Ресторан «Восток»" value="' + escapeAttr(o.title || '') + '">' +
       '<label>Описание</label>' +
-      '<textarea class="opt-desc" placeholder="Краткое описание места"></textarea>' +
-      '<label>Общий бюджет, ₽</label>' +
-      '<input type="number" class="opt-budget" min="0" step="100" value="0" placeholder="Например, 50000">' +
+      '<textarea class="opt-desc" placeholder="Краткое описание">' + escapeHtml(o.description || '') + '</textarea>' +
+      '<label>Тип расчёта</label>' +
+      '<select class="opt-type">' +
+        '<option value="deposit"' + (rowType === 'deposit' ? ' selected' : '') + '>🏦 Депозит — общая сумма на всех</option>' +
+        '<option value="check"' + (rowType === 'check' ? ' selected' : '') + '>🧾 Средний чек — цена за человека</option>' +
+      '</select>' +
+      '<label class="opt-budget-label">' + budgetLabel + '</label>' +
+      '<input type="number" class="opt-budget" min="0" step="100" value="' + (o.budget || 0) + '">' +
       '<label>Картинка</label>' +
       '<div class="opt-image-row">' +
-        '<input type="url" class="opt-image-url" placeholder="URL картинки или загрузите файл">' +
+        '<input type="url" class="opt-image-url" placeholder="URL картинки или загрузите файл" value="' + escapeAttr(o.image || '') + '">' +
         '<label class="opt-file-label">📷 Файл<input type="file" accept="image/*" class="opt-file"></label>' +
       '</div>' +
-      '<div class="opt-preview"></div>';
+      '<div class="opt-preview">' + (o.image ? '<img src="' + escapeAttr(o.image) + '" alt="">' : '') + '</div>';
+  }
 
-    if (prefill.title) row.querySelector('.opt-title').value = prefill.title;
-    if (prefill.description) row.querySelector('.opt-desc').value = prefill.description;
-    if (prefill.budget) row.querySelector('.opt-budget').value = prefill.budget;
-    if (prefill.image) {
-      row.dataset.image = prefill.image;
-      row.querySelector('.opt-image-url').value = prefill.image;
-    }
-    if (prefill.sourceUrl) row.querySelector('.opt-link').value = prefill.sourceUrl;
+  function attachOptionHandlers(row) {
+    var imgFromUrl = row.querySelector('.opt-image-url').value;
+    if (imgFromUrl) row.dataset.image = imgFromUrl;
 
     row.querySelector('.remove-btn').addEventListener('click', function () { row.remove(); });
+
+    var typeSel = row.querySelector('.opt-type');
+    if (typeSel) {
+      typeSel.addEventListener('change', function () {
+        var lbl = row.querySelector('.opt-budget-label');
+        if (lbl) {
+          lbl.textContent = typeSel.value === 'check'
+            ? 'Средний чек на человека, ₽'
+            : 'Общий бюджет, ₽';
+        }
+      });
+    }
 
     var linkInput = row.querySelector('.opt-link');
     var fetchBtn  = row.querySelector('.opt-fetch-btn');
@@ -241,6 +533,7 @@
       var url = linkInput.value.trim();
       if (!url) { fetchMsg.textContent = 'Вставьте ссылку'; fetchMsg.style.color = 'var(--bb-red)'; return; }
       fetchMsg.textContent = 'Загрузка…'; fetchMsg.style.color = 'var(--bb-gray)';
+
       Storage.fetchLink(url).then(function (meta) {
         if (meta.title) row.querySelector('.opt-title').value = meta.title;
         if (meta.description) row.querySelector('.opt-desc').value = meta.description;
@@ -249,9 +542,19 @@
           row.querySelector('.opt-image-url').value = meta.image;
           updatePreview(row);
         }
-        fetchMsg.textContent = '✓ Данные загружены' + (meta.image ? '' : ' (картинка не найдена)');
-        fetchMsg.style.color = meta.image ? 'var(--bb-green)' : '#a16207';
-        setTimeout(function () { fetchMsg.textContent = ''; }, 3500);
+        var count = (meta.images && meta.images.length) || 0;
+        if (count > 1) {
+          fetchMsg.textContent = '✓ Найдено картинок: ' + count + ' — выберите нужную';
+          fetchMsg.style.color = 'var(--bb-green)';
+          openImagePicker(meta.images, row);
+        } else if (count === 1) {
+          fetchMsg.textContent = '✓ Данные загружены';
+          fetchMsg.style.color = 'var(--bb-green)';
+          setTimeout(function () { fetchMsg.textContent = ''; }, 3500);
+        } else {
+          fetchMsg.textContent = '✓ Данные загружены, картинки не найдены';
+          fetchMsg.style.color = '#a16207';
+        }
       }).catch(function (err) {
         fetchMsg.textContent = '⚠ ' + (err.message || 'Ошибка');
         fetchMsg.style.color = 'var(--bb-red)';
@@ -282,49 +585,69 @@
         preview.innerHTML = '<div class="hint" style="color:var(--bb-red)">' + escapeHtml(err.message) + '</div>';
       });
     });
+  }
 
+  function addOption(prefill) {
+    prefill = prefill || {};
+    var row = document.createElement('div');
+    row.className = 'option-row';
+    row.innerHTML = optionRowHTML(prefill);
+    attachOptionHandlers(row);
     optionsList.appendChild(row);
     return row;
   }
-
   document.getElementById('addOptionBtn').addEventListener('click', function () { addOption(); });
 
   document.getElementById('createBtn').addEventListener('click', function () {
     var msg = document.getElementById('createMsg');
     msg.className = 'msg'; msg.textContent = '';
-
     var title = document.getElementById('pollTitle').value.trim();
     var description = document.getElementById('pollDesc').value.trim();
-    var options = Array.prototype.slice.call(document.querySelectorAll('.option-row')).map(function (row) {
+    var options = Array.prototype.slice.call(document.querySelectorAll('#optionsList .option-row')).map(function (row) {
+      var typeSel = row.querySelector('.opt-type');
       return {
         title: row.querySelector('.opt-title').value.trim(),
         description: row.querySelector('.opt-desc').value.trim(),
+        type: typeSel ? typeSel.value : 'deposit',
         budget: Number(row.querySelector('.opt-budget').value) || 0,
         image: row.dataset.image || null,
         sourceUrl: row.querySelector('.opt-link').value.trim() || null
       };
     }).filter(function (o) { return o.title; });
 
-    if (!title) { return showCreateMsg('Введите название опроса', true); }
-    if (options.length < 2) { return showCreateMsg('Нужно минимум 2 варианта', true); }
+    if (!title) return showCreateMsg('Введите название', true);
+    if (options.length < 2) return showCreateMsg('Минимум 2 варианта', true);
 
-    var btn = this;
-    btn.disabled = true;
-    btn.textContent = 'Создание…';
+    var askGroup = document.getElementById('pollAskGroup').checked;
+    var groupsText = document.getElementById('pollGroups').value;
+    var groups = groupsText.split('\n').map(function (s) { return s.trim(); }).filter(Boolean);
+    if (askGroup && groups.length === 0) {
+      return showCreateMsg('Укажите хотя бы одну группу или отключите запрос группы', true);
+    }
 
-    Storage.createPoll({ title: title, description: description, options: options }).then(function (res) {
-      btn.disabled = false;
-      btn.textContent = 'Создать опрос';
+    var btn = this; btn.disabled = true; btn.textContent = 'Создание…';
+
+    Storage.createPoll({
+      title: title,
+      description: description,
+      options: options,
+      askGroup: askGroup,
+      groups: groups,
+      suggestHours: Number(document.getElementById('pollSuggestHours').value) || 0,
+      voteDays: Number(document.getElementById('pollVoteDays').value) || 0
+    }).then(function (res) {
+      btn.disabled = false; btn.textContent = 'Создать опрос';
       var link = Storage.voteUrl(res.token);
-      showCreateMsg('Опрос создан! Ссылка для сотрудников: ' + link, false);
+      showCreateMsg('Опрос создан! Ссылка: ' + link, false);
       document.getElementById('pollTitle').value = '';
       document.getElementById('pollDesc').value = '';
+      document.getElementById('pollGroups').value = '';
+      document.getElementById('pollAskGroup').checked = true;
       optionsList.innerHTML = '';
       addOption(); addOption();
       loadPolls();
     }).catch(function (err) {
-      btn.disabled = false;
-      btn.textContent = 'Создать опрос';
+      btn.disabled = false; btn.textContent = 'Создать опрос';
       showCreateMsg('Ошибка: ' + err.message, true);
     });
   });
@@ -334,11 +657,13 @@
     msg.textContent = text;
     msg.className = 'msg ' + (isError ? 'msg-error' : 'msg-success') + ' show';
     if (!isError) {
-      msg.innerHTML = text.replace(/(https?:\/\/\S+)/,
-        '<a href="$1" target="_blank" style="color:#14532D;font-weight:700;">$1</a>');
+      msg.innerHTML = text.replace(/(https?:\/\/\S+)/, '<a href="$1" target="_blank" style="color:#14532D;font-weight:700;">$1</a>');
     }
   }
 
+  // ============================================================
+  // Список опросов
+  // ============================================================
   function loadPolls() {
     var list = document.getElementById('pollsList');
     Storage.listPolls().then(function (polls) {
@@ -347,25 +672,39 @@
       polls.forEach(function (p) {
         var voteUrl = Storage.voteUrl(p.token);
         var resUrl  = Storage.resultsUrl(p.token);
+
+        var phaseLabel = '';
+        if (p.phase === 'suggest' && p.suggestEndsAt) {
+          phaseLabel = '📝 приём предложений до ' + new Date(p.suggestEndsAt).toLocaleString('ru-RU');
+        } else if (p.phase === 'vote' && p.voteEndsAt) {
+          phaseLabel = '🗳 голосование до ' + new Date(p.voteEndsAt).toLocaleString('ru-RU');
+        } else if (p.phase === 'vote') {
+          phaseLabel = '🗳 голосование (без ограничения)';
+        } else {
+          phaseLabel = '🔒 завершён';
+        }
+
         var item = document.createElement('div');
         item.className = 'poll-item';
         item.innerHTML =
           '<div>' +
-            '<div class="title">' + escapeHtml(p.title) + ' ' +
-              '<span class="badge">' + p.totalVotes + '</span>' +
+            '<div class="title">' + escapeHtml(p.title) + ' <span class="badge">' + p.totalVotes + '</span>' +
+              (p.pendingCount ? ' <span class="badge" style="background:#E11D48;color:#fff">🔔 ' + p.pendingCount + '</span>' : '') +
             '</div>' +
-            '<div class="meta">' +
-              (p.isOpen ? '🟢 открыт' : '🔴 закрыт') + ' · ' +
-              new Date(p.createdAt).toLocaleString('ru-RU') +
-            '</div>' +
+            '<div class="meta">' + phaseLabel + ' · ' + (p.optionsCount || 0) + ' вар. · создан ' +
+              new Date(p.createdAt).toLocaleString('ru-RU') + '</div>' +
           '</div>' +
           '<div class="actions">' +
+            '<button class="btn btn-primary btn-sm" data-act="view" data-token="' + p.token + '" data-title="' + escapeAttr(p.title) + '">👁 Результаты</button>' +
+            (p.pendingCount
+              ? '<button class="btn btn-dark btn-sm" data-act="suggestions" data-token="' + p.token + '">🔔 Предложения (' + p.pendingCount + ')</button>'
+              : '<button class="btn btn-ghost btn-sm" data-act="suggestions" data-token="' + p.token + '">🔔 Предложения</button>') +
+            '<button class="btn btn-dark btn-sm" data-act="edit" data-token="' + p.token + '">✏️ Редактировать</button>' +
+            '<button class="btn btn-dark btn-sm" data-act="votes" data-token="' + p.token + '">👥 Голоса</button>' +
             '<a class="btn btn-ghost btn-sm" href="' + voteUrl + '" target="_blank">Голосование</a>' +
-            '<a class="btn btn-ghost btn-sm" href="' + resUrl + '" target="_blank">Результаты</a>' +
             '<button class="btn btn-ghost btn-sm" data-act="toggle" data-token="' + p.token + '" data-open="' + (!p.isOpen) + '">' +
               (p.isOpen ? 'Закрыть' : 'Открыть') + '</button>' +
-            '<button class="btn btn-ghost btn-sm" data-act="copy" data-url="' + voteUrl + '">Скопировать</button>' +
-            '<button class="btn btn-danger btn-sm" data-act="reset" data-token="' + p.token + '">Сбросить</button>' +
+            '<button class="btn btn-ghost btn-sm" data-act="copy" data-url="' + voteUrl + '">🔗</button>' +
             '<button class="btn btn-danger btn-sm" data-act="delete" data-token="' + p.token + '">Удалить</button>' +
           '</div>';
         list.appendChild(item);
@@ -383,13 +722,17 @@
     var act = btn.dataset.act;
     var token = btn.dataset.token;
 
+    if (act === 'view') { openResultsModal(token, btn.dataset.title); return; }
+    if (act === 'edit') { openEditModal(token); return; }
+    if (act === 'votes') { openVotesModal(token); return; }
+    if (act === 'suggestions') { openSuggestionsModal(token); return; }
     if (act === 'copy') {
       var url = btn.dataset.url;
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(url).then(function () {
           var old = btn.textContent;
-          btn.textContent = '✓ Скопировано';
-          setTimeout(function () { btn.textContent = old; }, 1500);
+          btn.textContent = '✓';
+          setTimeout(function () { btn.textContent = old; }, 1200);
         });
       } else { window.prompt('Скопируйте ссылку:', url); }
       return;
@@ -399,30 +742,901 @@
       Storage.deletePoll(token).then(loadPolls);
       return;
     }
-    if (act === 'reset') {
-      if (!confirm('Сбросить все голоса этого опроса?')) return;
-      Storage.resetVotes(token).then(loadPolls);
-      return;
-    }
     if (act === 'toggle') {
       Storage.togglePoll(token, btn.dataset.open === 'true').then(loadPolls);
     }
   }
 
-  Storage.init().then(function () {
-    document.getElementById('modeBadge').textContent = Storage.isServer() ? 'Серверный режим' : 'Локальный режим';
+  // ============================================================
+  // Модалка результатов
+  // ============================================================
+  var resultsModal = document.createElement('div');
+  resultsModal.className = 'modal-overlay';
+  resultsModal.id = 'resultsModal';
+  resultsModal.innerHTML =
+    '<div class="modal" style="max-width:900px">' +
+      '<div class="modal-head">' +
+        '<h2 id="modalTitle">Результаты</h2>' +
+        '<button class="modal-close" id="modalCloseBtn" title="Закрыть">✕</button>' +
+      '</div>' +
+      '<div class="modal-body" id="modalBody"><div class="loading">Загрузка…</div></div>' +
+      '<div class="modal-actions">' +
+        '<button class="btn btn-ghost btn-sm" id="modalExportBtn">📥 Экспорт CSV</button>' +
+        '<a class="btn btn-ghost btn-sm" id="modalOpenFullBtn" href="#" target="_blank">Открыть на отдельной странице</a>' +
+        '<button class="btn btn-dark btn-sm" id="modalCloseBtn2">Закрыть</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(resultsModal);
 
-    var pwHint = document.getElementById('changePwHint');
-    if (Storage.isServer()) {
-      pwHint.textContent = 'Пароль хранится на сервере (scrypt-хеш) и общий для всех администраторов.';
+  var currentResults = null;
+  var currentResultTitle = '';
+
+  function openResultsModal(token, title) {
+    currentResultTitle = title || 'Результаты';
+    document.getElementById('modalTitle').textContent = title || 'Результаты опроса';
+    document.getElementById('modalBody').innerHTML = '<div class="loading">Загрузка…</div>';
+    document.getElementById('modalOpenFullBtn').href = Storage.resultsUrl(token);
+    resultsModal.classList.add('show');
+    document.body.style.overflow = 'hidden';
+
+    Storage.getResults(token).then(function (data) {
+      currentResults = data;
+      renderModalResults(data);
+    }).catch(function (err) {
+      document.getElementById('modalBody').innerHTML =
+        '<div class="empty" style="color:var(--bb-red)">Не удалось: ' + escapeHtml(err.message || '') + '</div>';
+    });
+  }
+
+  function closeResultsModal() {
+    resultsModal.classList.remove('show');
+    document.body.style.overflow = '';
+    currentResults = null;
+  }
+
+  function renderModalResults(data) {
+    var html = '';
+    html += '<div class="subtitle" style="margin-bottom:14px">Всего человек: <b>' + data.totalVotes + '</b>' +
+      (data.totalRecords && data.totalRecords !== data.totalVotes ? ' (' + data.totalRecords + ' записей)' : '') + '</div>';
+
+    if (!data.winner) {
+      html += '<div class="winner-box" style="padding:22px;"><h2 style="margin:0">😕 Пока нет голосов</h2></div>';
+      document.getElementById('modalBody').innerHTML = html;
+      return;
+    }
+
+    var w = data.winner;
+    var imgHtml = w.image
+      ? '<div class="winner-image"><img src="' + escapeAttr(w.image) + '" alt=""></div>'
+      : '<div class="winner-image">🏆</div>';
+
+    var budgetBlock;
+    if (w.type === 'check') {
+      budgetBlock =
+        '<div class="budget-highlight">' +
+          '<div>' +
+            '<div class="budget-label">🧾 Средний чек · ' + w.votes + ' чел.</div>' +
+            '<div class="budget-sub">' + fmt(w.perPerson) + ' ₽ × ' + w.votes + ' чел. = ' + fmt(w.total) + ' ₽ итого</div>' +
+          '</div>' +
+          '<div class="budget-value">' + fmt(w.total) + ' ₽</div>' +
+        '</div>';
     } else {
-      pwHint.textContent = 'Локальный режим: пароль хранится в этом браузере. Смена действует только здесь.';
+      budgetBlock =
+        '<div class="budget-highlight">' +
+          '<div>' +
+            '<div class="budget-label">🏦 Депозит · ' + w.votes + ' чел.</div>' +
+            '<div class="budget-sub">' + fmt(w.total) + ' ₽ ÷ ' + w.votes + ' чел. = ' + fmt(w.perPerson) + ' ₽ на человека</div>' +
+          '</div>' +
+          '<div class="budget-value">' + fmt(w.perPerson) + ' ₽</div>' +
+        '</div>';
+    }
+
+    html +=
+      '<div class="winner-box">' + imgHtml +
+        '<div class="winner-content">' +
+          '<h2>🏆 ' + escapeHtml(w.title) + '</h2>' +
+          '<p class="winner-desc">' + escapeHtml(w.description || '') + '</p>' +
+          budgetBlock +
+          (w.sourceUrl
+            ? '<div style="margin-top:12px"><a class="btn btn-ghost btn-sm" href="' + escapeAttr(w.sourceUrl) + '" target="_blank" rel="noopener">🔗 Подробнее</a></div>'
+            : '') +
+        '</div>' +
+      '</div>';
+
+    html += '<h3 style="margin:16px 0 6px">Детали по всем вариантам</h3>';
+    html += '<table class="votes-table"><thead><tr><th>Место</th><th>Тип</th><th>Голосов</th><th>Сумма</th><th>На человека / Итого</th></tr></thead><tbody>';
+    data.results.forEach(function (r) {
+      var isWinner = data.winner && r.id === data.winner.id;
+      var isCheck = r.type === 'check';
+      html += '<tr class="' + (isWinner ? 'winner-row' : '') + '">' +
+        '<td>' + escapeHtml(r.title) + '</td>' +
+        '<td>' + (isCheck ? '🧾' : '🏦') + '</td>' +
+        '<td>' + r.votes + (r.records && r.records !== r.votes ? ' (' + r.records + ')' : '') + '</td>' +
+        (isCheck
+          ? '<td>' + fmt(r.perPerson) + ' ₽/чел.</td><td>' + (r.votes > 0 ? fmt(r.total) + ' ₽' : '—') + '</td>'
+          : '<td>' + fmt(r.total) + ' ₽</td><td>' + (r.votes > 0 ? fmt(r.perPerson) + ' ₽/чел.' : '—') + '</td>') +
+      '</tr>';
+    });
+    html += '</tbody></table>';
+
+    if (data.groups && data.groups.length) {
+      html += '<h3 style="margin:20px 0 8px">🏢 Группы</h3>';
+      html += '<table class="votes-table"><thead><tr><th>Группа</th><th>Человек</th><th>Записей</th></tr></thead><tbody>';
+      data.groups.forEach(function (g) {
+        html += '<tr><td>' + escapeHtml(g.group) + '</td><td>' + g.people + '</td><td>' + g.records + '</td></tr>';
+      });
+      html += '</tbody></table>';
+    }
+
+    var anyVotes = data.results.some(function (r) { return r.votes > 0; });
+    html += '<div class="voters-section"><h3>Кто голосовал</h3>';
+    if (!anyVotes) {
+      html += '<div class="empty">Пока никто не голосовал.</div>';
+    } else {
+      data.results.forEach(function (r) {
+        if (r.votes === 0) return;
+        var isWinner = data.winner && r.id === data.winner.id;
+        var chips = (r.voters || []).map(function (v) {
+          var label = (typeof v === 'object' && v !== null) ? (v.label || v.name) : v;
+          var cls = (typeof v === 'object' && v.plusOne) ? 'voter-chip plusone' : 'voter-chip';
+          return '<span class="' + cls + '">' + escapeHtml(label) + '</span>';
+        }).join('');
+        html += '<div class="voters-group' + (isWinner ? ' winner' : '') + '">' +
+          '<div class="vg-head"><span class="vg-title">' + escapeHtml(r.title) + '</span>' +
+          '<span class="vg-count">' + r.votes + ' чел.' +
+            (r.records && r.records !== r.votes ? ' (' + r.records + ' записей)' : '') + '</span></div>' +
+          '<div class="voters-chips">' + chips + '</div></div>';
+      });
+    }
+    html += '</div>';
+
+    document.getElementById('modalBody').innerHTML = html;
+  }
+
+  document.getElementById('modalCloseBtn').addEventListener('click', closeResultsModal);
+  document.getElementById('modalCloseBtn2').addEventListener('click', closeResultsModal);
+  resultsModal.addEventListener('click', function (e) { if (e.target === resultsModal) closeResultsModal(); });
+
+  document.getElementById('modalExportBtn').addEventListener('click', function () {
+    if (!currentResults || !currentResults.results) return;
+    var data = currentResults;
+    var maxName = 1;
+    data.results.forEach(function (r) {
+      if (r.voters && r.voters.length > maxName) maxName = r.voters.length;
+    });
+    var headers = ['Место', 'Тип', 'Голосов', 'Сумма', 'На человека / Итого'];
+    for (var i = 1; i <= maxName; i++) headers.push('Голос ' + i);
+    var rows = data.results.map(function (r) {
+      var isCheck = r.type === 'check';
+      var row = isCheck
+        ? [r.title, 'чек', r.votes, r.perPerson + ' ₽/чел.', r.total]
+        : [r.title, 'депозит', r.votes, r.total, r.perPerson + ' ₽/чел.'];
+      for (var j = 0; j < maxName; j++) {
+        var v = r.voters && r.voters[j];
+        row.push(v ? (typeof v === 'object' ? (v.label || v.name) : v) : '');
+      }
+      return row;
+    });
+    var csv = [headers].concat(rows).map(function (row) {
+      return row.map(function (cell) { return '"' + String(cell == null ? '' : cell).replace(/"/g, '""') + '"'; }).join(';');
+    }).join('\r\n');
+    var blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'результаты_' + (currentResultTitle || 'опрос').replace(/\s+/g, '_') + '.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  // ============================================================
+  // Модалка редактирования опроса
+  // ============================================================
+  function openEditModal(token) {
+    editingToken = token;
+    editBody.innerHTML = '<div class="loading">Загрузка…</div>';
+    editModal.classList.add('show');
+    document.body.style.overflow = 'hidden';
+
+    fetch('api/polls/' + encodeURIComponent(token))
+      .then(function (r) { return r.json(); })
+      .then(function (poll) {
+        var html = '' +
+          '<label>Название опроса</label>' +
+          '<input type="text" id="editTitle" value="' + escapeAttr(poll.title) + '">' +
+          '<label>Описание</label>' +
+          '<textarea id="editDesc">' + escapeHtml(poll.description || '') + '</textarea>' +
+          '<label style="margin-top:16px">⏱ Тайминг</label>' +
+          '<div class="row">' +
+            '<div>' +
+              '<label style="font-weight:400;margin-top:0">Приём предложений, часов</label>' +
+              '<input type="number" id="editSuggestHours" min="0" step="1" value="' + (poll.suggestHours || 0) + '">' +
+            '</div>' +
+            '<div>' +
+              '<label style="font-weight:400;margin-top:0">Голосование, дней</label>' +
+              '<input type="number" id="editVoteDays" min="0" step="1" value="' + (poll.voteDays || 0) + '">' +
+            '</div>' +
+          '</div>' +
+          '<label class="plusone-row" for="editAskGroup" style="margin-top:12px">' +
+            '<input type="checkbox" id="editAskGroup"' + (poll.askGroup !== false ? ' checked' : '') + '>' +
+            '<span>🏢 Запрашивать группу у сотрудников</span>' +
+          '</label>' +
+          '<div id="editGroupsBlock"' + (poll.askGroup === false ? ' style="display:none"' : '') + '>' +
+            '<label>Группы (по одной в строке)</label>' +
+            '<textarea id="editGroups">' + escapeHtml((poll.groups || []).join('\n')) + '</textarea>' +
+          '</div>' +
+          '<label style="margin-top:16px">Статус</label>' +
+          '<select id="editOpen">' +
+            '<option value="true"' + (poll.isOpen ? ' selected' : '') + '>🟢 Открыт</option>' +
+            '<option value="false"' + (!poll.isOpen ? ' selected' : '') + '>🔴 Закрыт</option>' +
+          '</select>' +
+          '<h3 style="margin:18px 0 8px">Варианты</h3>' +
+          '<div id="editOptionsList"></div>' +
+          '<button class="btn btn-ghost btn-sm" id="editAddOption">+ Добавить вариант</button>';
+
+        editBody.innerHTML = html;
+
+        document.getElementById('editAskGroup').addEventListener('change', function () {
+          document.getElementById('editGroupsBlock').style.display = this.checked ? '' : 'none';
+        });
+
+        var list = document.getElementById('editOptionsList');
+        poll.options.forEach(function (o) {
+          var row = document.createElement('div');
+          row.className = 'option-row';
+          row.dataset.id = o.id;
+          row.innerHTML = optionRowHTML(o);
+          attachOptionHandlers(row);
+          list.appendChild(row);
+        });
+
+        document.getElementById('editAddOption').addEventListener('click', function () {
+          var row = document.createElement('div');
+          row.className = 'option-row';
+          row.innerHTML = optionRowHTML({});
+          attachOptionHandlers(row);
+          list.appendChild(row);
+        });
+      })
+      .catch(function () {
+        editBody.innerHTML = '<div class="empty" style="color:var(--bb-red)">Не удалось загрузить опрос</div>';
+      });
+  }
+
+  function closeEditModal() {
+    editModal.classList.remove('show');
+    document.body.style.overflow = '';
+    editingToken = null;
+  }
+  document.getElementById('editCloseBtn').addEventListener('click', closeEditModal);
+  document.getElementById('editCancelBtn').addEventListener('click', closeEditModal);
+  editModal.addEventListener('click', function (e) { if (e.target === editModal) closeEditModal(); });
+
+  document.getElementById('editSaveBtn').addEventListener('click', function () {
+    if (!editingToken) return;
+    var btn = this;
+    btn.disabled = true; btn.textContent = 'Сохранение…';
+
+    var askGroup = document.getElementById('editAskGroup').checked;
+    var groupsText = document.getElementById('editGroups').value;
+    var groups = groupsText.split('\n').map(function (s) { return s.trim(); }).filter(Boolean);
+    if (askGroup && groups.length === 0) {
+      alert('Укажите хотя бы одну группу или отключите запрос группы');
+      btn.disabled = false; btn.textContent = '💾 Сохранить';
+      return;
+    }
+
+    var payload = {
+      title: document.getElementById('editTitle').value.trim(),
+      description: document.getElementById('editDesc').value.trim(),
+      isOpen: document.getElementById('editOpen').value === 'true',
+      askGroup: askGroup,
+      groups: groups,
+      suggestHours: Number(document.getElementById('editSuggestHours').value) || 0,
+      voteDays: Number(document.getElementById('editVoteDays').value) || 0,
+      options: Array.prototype.slice.call(document.querySelectorAll('#editOptionsList .option-row')).map(function (row) {
+        var typeSel = row.querySelector('.opt-type');
+        return {
+          id: row.dataset.id || null,
+          title: row.querySelector('.opt-title').value.trim(),
+          description: row.querySelector('.opt-desc').value.trim(),
+          type: typeSel ? typeSel.value : 'deposit',
+          budget: Number(row.querySelector('.opt-budget').value) || 0,
+          image: row.dataset.image || null,
+          sourceUrl: row.querySelector('.opt-link').value.trim() || null
+        };
+      }).filter(function (o) { return o.title; })
+    };
+
+    if (!payload.title) {
+      alert('Введите название');
+      btn.disabled = false; btn.textContent = '💾 Сохранить';
+      return;
+    }
+    if (payload.options.length < 2) {
+      alert('Минимум 2 варианта');
+      btn.disabled = false; btn.textContent = '💾 Сохранить';
+      return;
+    }
+
+    fetch('api/admin/polls/' + encodeURIComponent(editingToken), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'x-admin-password': Storage.getAdminPassword() },
+      body: JSON.stringify(payload)
+    })
+      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, data: d }; }); })
+      .then(function (res) {
+        btn.disabled = false; btn.textContent = '💾 Сохранить';
+        if (!res.ok) throw new Error(res.data.error || 'Ошибка');
+        closeEditModal();
+        loadPolls();
+      })
+      .catch(function (err) {
+        btn.disabled = false; btn.textContent = '💾 Сохранить';
+        alert('Не удалось сохранить: ' + err.message);
+      });
+  });
+
+  // ============================================================
+  // Модалка голосов
+  // ============================================================
+  function openVotesModal(token) {
+    votesToken = token;
+    votesBody.innerHTML = '<div class="loading">Загрузка…</div>';
+    votesModal.classList.add('show');
+    document.body.style.overflow = 'hidden';
+    loadVotes();
+  }
+  function closeVotesModal() {
+    votesModal.classList.remove('show');
+    document.body.style.overflow = '';
+    votesToken = null;
+  }
+
+  function loadVotes() {
+    if (!votesToken) return;
+    fetch('api/admin/polls/' + encodeURIComponent(votesToken) + '/votes', {
+      headers: { 'x-admin-password': Storage.getAdminPassword() }
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        var manualForm = '' +
+          '<div id="manualVoteForm" class="manual-vote-form" style="display:none">' +
+            '<h3 style="margin:0 0 10px">➕ Добавить голос вручную</h3>' +
+            '<p class="hint" style="margin-bottom:10px">Используйте, если сотрудник не успел проголосовать сам.</p>' +
+            '<div class="row">' +
+              '<div>' +
+                '<label>Фамилия <span style="color:var(--bb-red)">*</span></label>' +
+                '<input type="text" id="mvName" maxlength="100" placeholder="Иванов">' +
+              '</div>' +
+              '<div id="mvGroupWrap">' +
+                '<label>Группа</label>' +
+                '<select id="mvGroup"><option value="">— не указана —</option></select>' +
+              '</div>' +
+            '</div>' +
+            '<label>Вариант <span style="color:var(--bb-red)">*</span></label>' +
+            '<select id="mvOption"></select>' +
+            '<label class="plusone-row" for="mvPlusOne" style="margin-top:10px">' +
+              '<input type="checkbox" id="mvPlusOne">' +
+              '<span>➕ +1 (придёт с ещё одним человеком)</span>' +
+            '</label>' +
+            '<div class="actions">' +
+              '<button class="btn btn-primary btn-sm" id="mvSubmit">Добавить</button>' +
+              '<button class="btn btn-ghost btn-sm" id="mvCancel">Отмена</button>' +
+            '</div>' +
+            '<div class="msg" id="mvMsg"></div>' +
+          '</div>';
+
+        var listHtml;
+        if (!data.votes || !data.votes.length) {
+          listHtml = '<div class="empty">Пока никто не голосовал.</div>';
+        } else {
+          var rows = data.votes.map(function (v) {
+            var label = v.name + (v.plusOne ? ' +1' : '');
+            var mark = v.addedByAdmin
+              ? ' <span class="badge" style="background:#E5E7EB;color:#333;font-size:10px">вручную</span>'
+              : '';
+            return '<tr>' +
+              '<td>' + escapeHtml(label) + mark + '</td>' +
+              '<td>' + escapeHtml(v.group || '—') + '</td>' +
+              '<td>' + escapeHtml(v.optionTitle) + '</td>' +
+              '<td>' + (v.at ? new Date(v.at).toLocaleString('ru-RU') : '—') + '</td>' +
+              '<td style="text-align:right">' +
+                '<button class="btn btn-danger btn-sm" data-del-name="' + escapeAttr(v.name) + '">Удалить</button>' +
+              '</td>' +
+            '</tr>';
+          }).join('');
+
+          listHtml =
+            '<p class="hint" style="margin-bottom:12px">Всего записей: <b>' + data.votes.length + '</b>. ' +
+            'Удалите запись, если сотрудник передумал — он сможет проголосовать заново.</p>' +
+            '<table class="votes-table"><thead><tr><th>Фамилия</th><th>Группа</th><th>Вариант</th><th>Когда</th><th></th></tr></thead><tbody>' +
+            rows + '</tbody></table>';
+        }
+
+        votesBody.innerHTML = manualForm + listHtml;
+
+        var groupSel = document.getElementById('mvGroup');
+        var optionSel = document.getElementById('mvOption');
+        var groupWrap = document.getElementById('mvGroupWrap');
+
+        fetch('api/polls/' + encodeURIComponent(votesToken))
+          .then(function (r) { return r.json(); })
+          .then(function (pollData) {
+            if (pollData.askGroup !== false && Array.isArray(pollData.groups) && pollData.groups.length) {
+              groupSel.innerHTML = '<option value="">— выберите группу —</option>' +
+                pollData.groups.map(function (g) {
+                  return '<option value="' + escapeAttr(g) + '">' + escapeHtml(g) + '</option>';
+                }).join('');
+            } else {
+              groupWrap.style.display = 'none';
+            }
+          });
+
+        optionSel.innerHTML = '<option value="">— выберите вариант —</option>' +
+          (data.options || []).filter(function (o) { return !o.pending; }).map(function (o) {
+            var suffix = o.type === 'check' ? ' (чек)' : ' (депозит)';
+            return '<option value="' + escapeAttr(o.id) + '">' + escapeHtml(o.title) + suffix + '</option>';
+          }).join('');
+
+        document.getElementById('votesAddManualBtn').onclick = function () {
+          var f = document.getElementById('manualVoteForm');
+          f.style.display = f.style.display === 'none' ? '' : 'none';
+        };
+        document.getElementById('mvCancel').onclick = function () {
+          document.getElementById('manualVoteForm').style.display = 'none';
+          document.getElementById('mvMsg').className = 'msg';
+        };
+
+        document.getElementById('mvSubmit').onclick = function () {
+          var msg = document.getElementById('mvMsg');
+          msg.className = 'msg'; msg.textContent = '';
+          function show(text, isError) {
+            msg.textContent = text;
+            msg.className = 'msg ' + (isError ? 'msg-error' : 'msg-success') + ' show';
+          }
+          var payload = {
+            name: document.getElementById('mvName').value.trim(),
+            group: groupSel && groupWrap.style.display !== 'none' ? groupSel.value : '',
+            optionId: optionSel.value,
+            plusOne: document.getElementById('mvPlusOne').checked
+          };
+          if (!payload.name) return show('Введите фамилию', true);
+          if (!payload.optionId) return show('Выберите вариант', true);
+
+          var btn = this;
+          btn.disabled = true; btn.textContent = 'Добавление…';
+
+          Storage.addVoteManual(votesToken, payload).then(function () {
+            btn.disabled = false; btn.textContent = 'Добавить';
+            loadVotes();
+            loadPolls();
+          }).catch(function (err) {
+            btn.disabled = false; btn.textContent = 'Добавить';
+            show('Ошибка: ' + (err.message || ''), true);
+          });
+        };
+
+        votesBody.querySelectorAll('button[data-del-name]').forEach(function (btn) {
+          btn.addEventListener('click', function () {
+            var name = btn.dataset.delName;
+            var tr = btn.closest('tr');
+            var cells = tr.querySelectorAll('td');
+            var optionTitle = cells[2] ? cells[2].textContent.trim() : '';
+
+            Storage.getResults(votesToken).then(function (res) {
+              var optionResult = (res.results || []).find(function (r) { return r.title === optionTitle; });
+              var currentPeople = optionResult ? optionResult.votes : 0;
+              var currentPer = optionResult ? optionResult.perPerson : 0;
+              var currentTotal = optionResult ? optionResult.total : 0;
+              var willBePeople = Math.max(0, currentPeople - 1);
+              var willBePer = 0, willBeTotal = 0;
+              if (optionResult && willBePeople > 0) {
+                if (optionResult.type === 'check') {
+                  willBePer = optionResult.budget;
+                  willBeTotal = willBePeople * willBePer;
+                } else {
+                  willBeTotal = optionResult.budget;
+                  willBePer = Math.round(willBeTotal / willBePeople);
+                }
+              }
+              var msg = 'Удалить голос «' + name + '»?\n\n' +
+                'Место: ' + optionTitle + '\n' +
+                'Сейчас человек: ' + currentPeople + '\n' +
+                'На человека: ' + currentPer + ' ₽\n' +
+                'Итого: ' + currentTotal + ' ₽\n\n' +
+                'После удаления: ' + willBePeople + ' чел.\n' +
+                'На человека: ' + willBePer + ' ₽\n' +
+                'Итого: ' + willBeTotal + ' ₽\n\nПродолжить?';
+              if (!confirm(msg)) return;
+
+              btn.disabled = true; btn.textContent = '…';
+              Storage.removeVote(votesToken, name, 'отказ').then(function () {
+                loadVotes();
+                loadPolls();
+              }).catch(function (err) {
+                btn.disabled = false; btn.textContent = 'Удалить';
+                alert('Не удалось удалить: ' + err.message);
+              });
+            });
+          });
+        });
+      })
+      .catch(function () {
+        votesBody.innerHTML = '<div class="empty" style="color:var(--bb-red)">Не удалось загрузить</div>';
+      });
+  }
+
+  document.getElementById('votesCloseBtn').addEventListener('click', closeVotesModal);
+  document.getElementById('votesCloseBtn2').addEventListener('click', closeVotesModal);
+  document.getElementById('votesRefreshBtn').addEventListener('click', loadVotes);
+  votesModal.addEventListener('click', function (e) { if (e.target === votesModal) closeVotesModal(); });
+
+  document.getElementById('votesResetAllBtn').addEventListener('click', function () {
+    if (!votesToken) return;
+    if (!confirm('Сбросить ВСЕ голоса этого опроса?')) return;
+    Storage.resetVotes(votesToken).then(function () {
+      loadVotes();
+      loadPolls();
+    });
+  });
+
+  // ============================================================
+  // Модалка предложений
+  // ============================================================
+  function openSuggestionsModal(token) {
+    suggestionsToken = token;
+    suggestionsBody.innerHTML = '<div class="loading">Загрузка…</div>';
+    suggestionsModal.classList.add('show');
+    document.body.style.overflow = 'hidden';
+    loadSuggestions();
+  }
+  function closeSuggestionsModal() {
+    suggestionsModal.classList.remove('show');
+    document.body.style.overflow = '';
+    suggestionsToken = null;
+  }
+
+  function loadSuggestions() {
+    if (!suggestionsToken) return;
+    Storage.listSuggestions(suggestionsToken).then(function (list) {
+      if (!list.length) {
+        suggestionsBody.innerHTML = '<div class="empty">Пока нет предложений от сотрудников.</div>';
+        return;
+      }
+      suggestionsBody.innerHTML = list.map(function (o) {
+        var imgHtml = o.image
+          ? '<div class="suggestion-cover" style="background-image:url(&quot;' + escapeAttr(o.image) + '&quot;)"></div>'
+          : '<div class="suggestion-cover suggestion-cover-empty">🖼️</div>';
+        return '' +
+          '<div class="suggestion-item">' +
+            imgHtml +
+            '<div class="suggestion-body">' +
+              '<div class="suggestion-title">' + escapeHtml(o.title) + '</div>' +
+              (o.description ? '<div class="suggestion-desc">' + escapeHtml(o.description) + '</div>' : '') +
+              '<div class="suggestion-meta">' +
+                (o.type === 'check' ? '🧾 Средний чек: <b>' : '🏦 Депозит: <b>') +
+                fmt(o.budget) + ' ₽</b>' +
+              '</div>' +
+              (o.sourceUrl
+                ? '<div class="suggestion-meta" style="margin-top:4px">' +
+                    '<a class="btn btn-ghost btn-sm" href="' + escapeAttr(o.sourceUrl) + '" target="_blank" rel="noopener">🔗 Подробнее</a>' +
+                  '</div>'
+                : '') +
+              '<div class="suggestion-author">Предложил: ' + escapeHtml(o.suggestedBy || '—') +
+                ' · ' + new Date(o.suggestedAt).toLocaleString('ru-RU') + '</div>' +
+              '<div class="suggestion-actions">' +
+                '<button class="btn btn-primary btn-sm" data-sug-act="approve" data-id="' + o.id + '">✓ Одобрить</button>' +
+                '<button class="btn btn-danger btn-sm" data-sug-act="reject" data-id="' + o.id + '">✕ Отклонить</button>' +
+              '</div>' +
+            '</div>' +
+          '</div>';
+      }).join('');
+
+      suggestionsBody.querySelectorAll('button[data-sug-act]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var id = btn.dataset.id;
+          var act = btn.dataset.sugAct;
+          if (act === 'approve') {
+            btn.disabled = true; btn.textContent = '…';
+            Storage.approveSuggestion(suggestionsToken, id).then(function () {
+              loadSuggestions();
+              loadPolls();
+            }).catch(function (err) {
+              btn.disabled = false; btn.textContent = '✓ Одобрить';
+              alert('Ошибка: ' + err.message);
+            });
+          } else if (act === 'reject') {
+            if (!confirm('Отклонить это предложение? Оно будет удалено.')) return;
+            btn.disabled = true; btn.textContent = '…';
+            Storage.rejectSuggestion(suggestionsToken, id).then(function () {
+              loadSuggestions();
+              loadPolls();
+            }).catch(function (err) {
+              btn.disabled = false; btn.textContent = '✕ Отклонить';
+              alert('Ошибка: ' + err.message);
+            });
+          }
+        });
+      });
+    }).catch(function (err) {
+      suggestionsBody.innerHTML = '<div class="empty" style="color:var(--bb-red)">' + escapeHtml(err.message) + '</div>';
+    });
+  }
+
+  document.getElementById('suggestionsClose').addEventListener('click', closeSuggestionsModal);
+  document.getElementById('suggestionsClose2').addEventListener('click', closeSuggestionsModal);
+  suggestionsModal.addEventListener('click', function (e) { if (e.target === suggestionsModal) closeSuggestionsModal(); });
+
+  // ============================================================
+  // Модалка выбора картинки
+  // ============================================================
+  function openImagePicker(images, row) {
+    imagePickerTargetRow = row;
+    renderImagePicker(images || []);
+    imagePickerModal.classList.add('show');
+    document.body.style.overflow = 'hidden';
+  }
+  function closeImagePicker() {
+    imagePickerModal.classList.remove('show');
+    document.body.style.overflow = '';
+    imagePickerTargetRow = null;
+  }
+  function hostFromUrl(u) {
+    try { return new URL(u).hostname.replace(/^www\./, ''); } catch (e) { return ''; }
+  }
+  function renderImagePicker(images) {
+    if (!images.length) {
+      imagePickerBody.innerHTML = '<div class="empty">Картинок не найдено</div>';
+      return;
+    }
+    var html = '<p class="hint" style="margin-bottom:14px">Кликните по картинке, чтобы использовать её.</p>';
+    html += '<div class="image-picker-grid">';
+    images.forEach(function (img, i) {
+      var sizeLabel = '';
+      if (img.width && img.height) sizeLabel = img.width + '×' + img.height;
+      else if (img.size) sizeLabel = Math.round(img.size / 1024) + ' КБ';
+      html += '<div class="image-picker-item" data-url="' + escapeAttr(img.url) + '" data-idx="' + i + '">' +
+        '<div class="image-picker-thumb">' +
+          '<img src="' + escapeAttr(img.url) + '" alt="" loading="lazy" ' +
+            'onerror="this.parentNode.innerHTML=\'<div class=&quot;image-picker-broken&quot;>не загрузилось</div>\'">' +
+          (i === 0 ? '<span class="image-picker-badge">главная</span>' : '') +
+        '</div>' +
+        '<div class="image-picker-meta">' +
+          '<span class="image-picker-size">' + escapeHtml(sizeLabel) + '</span>' +
+          '<span class="image-picker-host">' + escapeHtml(hostFromUrl(img.url)) + '</span>' +
+        '</div>' +
+      '</div>';
+    });
+    html += '</div>';
+    imagePickerBody.innerHTML = html;
+
+    imagePickerBody.querySelectorAll('.image-picker-item').forEach(function (item) {
+      item.addEventListener('click', function () {
+        var url = item.dataset.url;
+        if (imagePickerTargetRow) {
+          imagePickerTargetRow.dataset.image = url;
+          imagePickerTargetRow.querySelector('.opt-image-url').value = url;
+          updatePreview(imagePickerTargetRow);
+        }
+        closeImagePicker();
+      });
+    });
+  }
+  document.getElementById('imagePickerClose').addEventListener('click', closeImagePicker);
+  document.getElementById('imagePickerCancel').addEventListener('click', closeImagePicker);
+  imagePickerModal.addEventListener('click', function (e) { if (e.target === imagePickerModal) closeImagePicker(); });
+  document.getElementById('imagePickerManualBtn').addEventListener('click', function () {
+    if (imagePickerTargetRow) {
+      var input = imagePickerTargetRow.querySelector('.opt-image-url');
+      closeImagePicker();
+      input.focus();
+      input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } else { closeImagePicker(); }
+  });
+
+  // ============================================================
+  // Воспоминания
+  // ============================================================
+  function resetMemoryForm() {
+    editingMemoryId = null;
+    document.getElementById('memDate').value = '';
+    document.getElementById('memTitle').value = '';
+    document.getElementById('memDescription').value = '';
+    document.getElementById('memAlbumUrl').value = '';
+    document.getElementById('memCover').value = '';
+    document.getElementById('memCoverPreview').innerHTML = '';
+    document.getElementById('memPreviewHint').textContent = '';
+    document.getElementById('memCancelEdit').style.display = 'none';
+    document.getElementById('memSaveBtn').textContent = '💾 Сохранить';
+    document.getElementById('memMsg').className = 'msg';
+    document.getElementById('memMsg').textContent = '';
+  }
+
+  function updateCoverPreview() {
+    var url = document.getElementById('memCover').value.trim();
+    document.getElementById('memCoverPreview').innerHTML = url
+      ? '<img src="' + escapeAttr(url) + '" style="max-width:240px;max-height:150px;border-radius:8px;margin-top:8px;border:1px solid var(--bb-line)" onerror="this.style.display=\'none\'">'
+      : '';
+  }
+  document.getElementById('memCover').addEventListener('input', updateCoverPreview);
+
+  document.getElementById('memCoverFile').addEventListener('change', function (e) {
+    var file = e.target.files[0];
+    if (!file) return;
+    var preview = document.getElementById('memCoverPreview');
+    preview.innerHTML = '<div class="hint">Загрузка…</div>';
+    Storage.uploadImage(file).then(function (url) {
+      document.getElementById('memCover').value = url;
+      updateCoverPreview();
+    }).catch(function (err) {
+      preview.innerHTML = '<div class="hint" style="color:var(--bb-red)">' + escapeHtml(err.message) + '</div>';
+    });
+  });
+
+  document.getElementById('memFetchPreview').addEventListener('click', function () {
+    var url = document.getElementById('memAlbumUrl').value.trim();
+    var hint = document.getElementById('memPreviewHint');
+    if (!url) { hint.textContent = 'Вставьте ссылку'; hint.style.color = 'var(--bb-red)'; return; }
+
+    var btn = this;
+    btn.disabled = true; btn.textContent = '…';
+    hint.textContent = 'Загрузка…';
+    hint.style.color = '';
+
+    Storage.fetchAlbumPreview(url).then(function (meta) {
+      btn.disabled = false; btn.textContent = '🔍 Подтянуть превью';
+      if (!document.getElementById('memTitle').value && meta.title) {
+        document.getElementById('memTitle').value = meta.title;
+      }
+      if (!document.getElementById('memDescription').value && meta.description) {
+        document.getElementById('memDescription').value = meta.description;
+      }
+      if (meta.image && !document.getElementById('memCover').value) {
+        document.getElementById('memCover').value = meta.image;
+        updateCoverPreview();
+      }
+      var count = (meta.images && meta.images.length) || 0;
+      hint.textContent = '✓ Данные получены' + (count > 1 ? ' — картинок найдено: ' + count : '');
+      hint.style.color = 'var(--bb-green)';
+      setTimeout(function () { hint.textContent = ''; }, 4000);
+    }).catch(function (err) {
+      btn.disabled = false; btn.textContent = '🔍 Подтянуть превью';
+      hint.textContent = '⚠ ' + (err.message || 'Ошибка');
+      hint.style.color = 'var(--bb-red)';
+    });
+  });
+
+  document.getElementById('memSaveBtn').addEventListener('click', function () {
+    var msg = document.getElementById('memMsg');
+    msg.className = 'msg'; msg.textContent = '';
+    var payload = {
+      title: document.getElementById('memTitle').value.trim(),
+      date: document.getElementById('memDate').value,
+      description: document.getElementById('memDescription').value.trim(),
+      albumUrl: document.getElementById('memAlbumUrl').value.trim(),
+      cover: document.getElementById('memCover').value.trim() || null
+    };
+    function show(text, isError) {
+      msg.textContent = text;
+      msg.className = 'msg ' + (isError ? 'msg-error' : 'msg-success') + ' show';
+    }
+    if (!payload.title) return show('Введите название', true);
+    if (!payload.date) return show('Укажите дату', true);
+
+    var btn = this;
+    btn.disabled = true; btn.textContent = 'Сохранение…';
+
+    var op = editingMemoryId ? Storage.updateMemory(editingMemoryId, payload) : Storage.createMemory(payload);
+    op.then(function () {
+      btn.disabled = false; btn.textContent = '💾 Сохранить';
+      show(editingMemoryId ? 'Запись обновлена' : 'Запись добавлена', false);
+      resetMemoryForm();
+      loadMemoriesAdmin();
+    }).catch(function (err) {
+      btn.disabled = false; btn.textContent = '💾 Сохранить';
+      show('Ошибка: ' + (err.message || ''), true);
+    });
+  });
+
+  document.getElementById('memCancelEdit').addEventListener('click', resetMemoryForm);
+
+  function loadMemoriesAdmin() {
+    var box = document.getElementById('memoriesAdminList');
+    if (!box) return;
+    Storage.listMemoriesAdmin().then(function (list) {
+      if (!list.length) {
+        box.innerHTML = '<div class="empty">Пока нет записей.</div>';
+        return;
+      }
+      box.innerHTML = '';
+      list.forEach(function (m) {
+        var item = document.createElement('div');
+        item.className = 'memory-admin-item';
+        item.innerHTML =
+          '<div class="memory-admin-cover" style="' +
+            (m.cover ? 'background-image:url(&quot;' + escapeAttr(m.cover) + '&quot;)' : '') + '">' +
+            (m.cover ? '' : '📸') +
+          '</div>' +
+          '<div class="memory-admin-info">' +
+            '<div class="memory-admin-date">' + escapeHtml(fmtDateRu(m.date)) + '</div>' +
+            '<div class="memory-admin-title">' + escapeHtml(m.title) + '</div>' +
+            (m.albumUrl ? '<a class="memory-admin-link" href="' + escapeAttr(m.albumUrl) + '" target="_blank" rel="noopener">🔗 Альбом</a>' : '') +
+          '</div>' +
+          '<div class="memory-admin-actions">' +
+            '<button class="btn btn-ghost btn-sm" data-act="edit" data-id="' + m.id + '">✏️</button>' +
+            '<button class="btn btn-danger btn-sm" data-act="del" data-id="' + m.id + '">🗑</button>' +
+          '</div>';
+        box.appendChild(item);
+      });
+
+      box.querySelectorAll('button[data-act]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var id = btn.dataset.id;
+          var act = btn.dataset.act;
+          if (act === 'edit') {
+            var m = list.find(function (x) { return x.id === id; });
+            if (!m) return;
+            editingMemoryId = id;
+            document.getElementById('memDate').value = m.date || '';
+            document.getElementById('memTitle').value = m.title || '';
+            document.getElementById('memDescription').value = m.description || '';
+            document.getElementById('memAlbumUrl').value = m.albumUrl || '';
+            document.getElementById('memCover').value = m.cover || '';
+            updateCoverPreview();
+            document.getElementById('memCancelEdit').style.display = 'inline-flex';
+            document.getElementById('memSaveBtn').textContent = '💾 Обновить';
+            document.getElementById('memoryForm').scrollIntoView({ behavior: 'smooth', block: 'start' });
+          } else if (act === 'del') {
+            if (!confirm('Удалить эту запись?')) return;
+            Storage.deleteMemory(id).then(function () {
+              if (editingMemoryId === id) resetMemoryForm();
+              loadMemoriesAdmin();
+            });
+          }
+        });
+      });
+    }).catch(function () {
+      box.innerHTML = '<div class="empty" style="color:var(--bb-red)">Не удалось загрузить</div>';
+    });
+  }
+
+  // ============================================================
+  // Esc
+  // ============================================================
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    if (imagePickerModal.classList.contains('show')) closeImagePicker();
+    if (editModal.classList.contains('show')) closeEditModal();
+    if (votesModal.classList.contains('show')) closeVotesModal();
+    if (suggestionsModal.classList.contains('show')) closeSuggestionsModal();
+    if (resultsModal.classList.contains('show')) closeResultsModal();
+  });
+
+  // ============================================================
+  // Инициализация
+  // ============================================================
+  Storage.init().then(function () {
+    document.getElementById('modeBadge').textContent = Storage.isServer() ? 'Сервер (Supabase)' : 'Локальный режим';
+
+    if (Storage.isServer()) {
+      document.getElementById('changePwHint').textContent = 'Пароль хранится на сервере (scrypt-хеш).';
+    } else {
+      document.getElementById('changePwHint').textContent = 'Локальный режим: пароль в этом браузере.';
       document.getElementById('loginHint').textContent = 'Локальный режим. Пароль по умолчанию: admin123.';
     }
 
     if (Storage.getAdminPassword()) {
-      Storage.listPolls().then(showPanel).catch(showLogin);
-    } else { showLogin(); }
+      Storage.listPolls().then(function () {
+        loginCard.classList.add('hidden');
+        adminPanel.classList.remove('hidden');
+        loadPolls();
+        loadMemoriesAdmin();
+        document.getElementById('checkStorageBtn').click();
+      }).catch(showLogin);
+    } else {
+      showLogin();
+    }
     addOption(); addOption();
   });
 })();
