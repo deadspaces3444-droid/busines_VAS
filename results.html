@@ -12,23 +12,22 @@
   <aside class="sidebar">
     <div class="sidebar-logo">
       <a href="index.html" style="text-decoration:none">
-        <svg class="bb-logo" viewBox="0 0 200 56" xmlns="http://www.w3.org/2000/svg" aria-label="Билайн Бизнес">
+        <svg class="bb-logo" viewBox="0 0 200 56" xmlns="http://www.w3.org/2000/svg">
           <g transform="translate(0,8)">
             <circle cx="20" cy="20" r="20" fill="#FFCC00"/>
             <path d="M4 13 Q20 10 36 13" stroke="#0A0A0A" stroke-width="3" fill="none" stroke-linecap="round"/>
             <path d="M2 21 Q20 18 38 21" stroke="#0A0A0A" stroke-width="3" fill="none" stroke-linecap="round"/>
             <path d="M4 29 Q20 26 36 29" stroke="#0A0A0A" stroke-width="3" fill="none" stroke-linecap="round"/>
           </g>
-          <text x="50" y="28" font-family="Arial, sans-serif" font-weight="900" font-size="20"
-                letter-spacing="-0.8" fill="#ffffff">билайн</text>
-          <text x="50" y="44" font-family="Arial, sans-serif" font-weight="600" font-size="9"
-                letter-spacing="3.5" fill="#FFCC00">БИЗНЕС</text>
+          <text x="50" y="28" font-family="Arial, sans-serif" font-weight="900" font-size="20" fill="#ffffff">билайн</text>
+          <text x="50" y="44" font-family="Arial, sans-serif" font-weight="600" font-size="9" letter-spacing="3.5" fill="#FFCC00">БИЗНЕС</text>
         </svg>
       </a>
       <div class="sidebar-office">VAS <span>Саратов / Калуга</span></div>
     </div>
     <nav class="sidebar-nav">
       <a href="index.html" class="nav-item"><span class="nav-icon">🏠</span><span class="nav-label">Главная</span></a>
+      <a href="memories.html" class="nav-item"><span class="nav-icon">📸</span><span class="nav-label">Воспоминания</span></a>
       <a href="admin.html" class="nav-item"><span class="nav-icon">⚙️</span><span class="nav-label">Админ-панель</span></a>
     </nav>
     <div class="sidebar-footer"><div class="mode-badge" id="modeBadge">…</div></div>
@@ -39,10 +38,14 @@
       <h1 id="pollTitle">Загрузка…</h1>
       <p class="subtitle" id="pollDesc"></p>
 
+      <div id="phaseTimerWrap"></div>
+
       <div id="winnerBox"></div>
 
       <h3 style="margin:20px 0 8px">Детали по всем вариантам</h3>
       <table class="votes-table" id="votesTable"></table>
+
+      <div id="groupsBlock" style="margin-top:24px"></div>
 
       <div class="voters-section">
         <h3>Кто голосовал</h3>
@@ -54,6 +57,10 @@
         <a class="btn btn-primary" id="voteLink" href="#">Проголосовать</a>
       </div>
     </div>
+
+    <footer class="app-footer">
+      <span class="author">Сергеев С.В</span>
+    </footer>
   </main>
 </div>
 
@@ -69,6 +76,7 @@
     });
   }
   function fmt(n) { return Number(n || 0).toLocaleString('ru-RU'); }
+  function pad(n) { return n < 10 ? '0' + n : String(n); }
 
   if (!token) {
     document.getElementById('pollTitle').textContent = 'Не указан опрос';
@@ -76,6 +84,26 @@
   }
 
   document.getElementById('voteLink').href = Storage.voteUrl(token);
+
+  var serverOffset = 0;
+  var phaseTimerEl = null;
+  var phaseLabelEl = null;
+  var phaseValueEl = null;
+  var phaseTarget = null;
+  var phaseType = null;
+  var timerInterval = null;
+
+  function serverNow() { return Date.now() + serverOffset; }
+  function fmtRemaining(ms) {
+    if (ms <= 0) return '00:00:00';
+    var t = Math.floor(ms / 1000);
+    var d = Math.floor(t / 86400);
+    var h = Math.floor((t % 86400) / 3600);
+    var m = Math.floor((t % 3600) / 60);
+    var s = t % 60;
+    if (d > 0) return d + ' д ' + pad(h) + ':' + pad(m) + ':' + pad(s);
+    return pad(h) + ':' + pad(m) + ':' + pad(s);
+  }
 
   Storage.init().then(function () {
     document.getElementById('modeBadge').textContent =
@@ -85,7 +113,12 @@
   .then(function (data) {
     document.getElementById('pollTitle').textContent = data.title;
     document.getElementById('pollDesc').innerHTML =
-      'Всего проголосовало: <b>' + data.totalVotes + '</b>';
+      'Всего человек: <b>' + data.totalVotes + '</b>' +
+      (data.totalRecords && data.totalRecords !== data.totalVotes ? ' (' + data.totalRecords + ' записей)' : '');
+
+    if (data.serverNow) serverOffset = new Date(data.serverNow).getTime() - Date.now();
+
+    renderTimer(data);
 
     var wb = document.getElementById('winnerBox');
     if (!data.winner) {
@@ -96,18 +129,36 @@
         ? '<div class="winner-image"><img src="' + esc(w.image) + '" alt=""></div>'
         : '<div class="winner-image">🏆</div>';
 
+      var budgetBlock;
+      if (w.type === 'check') {
+        budgetBlock =
+          '<div class="budget-highlight">' +
+            '<div>' +
+              '<div class="budget-label">🧾 Средний чек · ' + w.votes + ' чел. выбрали</div>' +
+              '<div class="budget-sub">' + fmt(w.perPerson) + ' ₽ × ' + w.votes + ' чел. = ' + fmt(w.total) + ' ₽ итого</div>' +
+            '</div>' +
+            '<div class="budget-value">' + fmt(w.total) + ' ₽</div>' +
+          '</div>';
+      } else {
+        budgetBlock =
+          '<div class="budget-highlight">' +
+            '<div>' +
+              '<div class="budget-label">🏦 Депозит · ' + w.votes + ' чел. выбрали</div>' +
+              '<div class="budget-sub">' + fmt(w.total) + ' ₽ ÷ ' + w.votes + ' чел. = ' + fmt(w.perPerson) + ' ₽ на человека</div>' +
+            '</div>' +
+            '<div class="budget-value">' + fmt(w.perPerson) + ' ₽</div>' +
+          '</div>';
+      }
+
       wb.innerHTML =
         '<div class="winner-box">' + imgHtml +
           '<div class="winner-content">' +
             '<h2>🏆 ' + esc(w.title) + '</h2>' +
             '<p class="winner-desc">' + esc(w.description || '') + '</p>' +
-            '<div class="budget-highlight">' +
-              '<div>' +
-                '<div class="budget-label">Общий бюджет · ' + w.votes + ' чел. выбрали</div>' +
-                '<div class="budget-sub">' + fmt(w.budget) + ' ₽ ÷ ' + w.votes + ' чел. = ' + fmt(w.perPerson) + ' ₽ на человека</div>' +
-              '</div>' +
-              '<div class="budget-value">' + fmt(w.perPerson) + ' ₽</div>' +
-            '</div>' +
+            budgetBlock +
+            (w.sourceUrl
+              ? '<div style="margin-top:12px"><a class="btn btn-ghost btn-sm" href="' + esc(w.sourceUrl) + '" target="_blank" rel="noopener">🔗 Подробнее</a></div>'
+              : '') +
           '</div>' +
         '</div>';
     }
@@ -115,17 +166,35 @@
     var rows = '';
     data.results.forEach(function (r) {
       var isWinner = data.winner && r.id === data.winner.id;
+      var isCheck = r.type === 'check';
       rows +=
         '<tr class="' + (isWinner ? 'winner-row' : '') + '">' +
           '<td>' + esc(r.title) + '</td>' +
-          '<td>' + r.votes + '</td>' +
-          '<td>' + fmt(r.budget) + ' ₽</td>' +
-          '<td>' + (r.votes > 0 ? fmt(r.perPerson) + ' ₽' : '—') + '</td>' +
+          '<td>' + (isCheck ? '🧾' : '🏦') + '</td>' +
+          '<td>' + r.votes + (r.records && r.records !== r.votes ? ' (' + r.records + ')' : '') + '</td>' +
+          (isCheck
+            ? '<td>' + fmt(r.perPerson) + ' ₽/чел.</td><td>' + (r.votes > 0 ? fmt(r.total) + ' ₽' : '—') + '</td>'
+            : '<td>' + fmt(r.total) + ' ₽</td><td>' + (r.votes > 0 ? fmt(r.perPerson) + ' ₽/чел.' : '—') + '</td>') +
         '</tr>';
     });
     document.getElementById('votesTable').innerHTML =
-      '<thead><tr><th>Место</th><th>Голосов</th><th>Общий бюджет</th><th>На человека</th></tr></thead>' +
+      '<thead><tr><th>Место</th><th>Тип</th><th>Голосов</th><th>Сумма</th><th>На человека / Итого</th></tr></thead>' +
       '<tbody>' + rows + '</tbody>';
+
+    var groupsBox = document.getElementById('groupsBlock');
+    if (groupsBox) {
+      if (data.groups && data.groups.length) {
+        var gh = '<h3 style="margin:0 0 10px">🏢 Группы</h3>';
+        gh += '<table class="votes-table"><thead><tr><th>Группа</th><th>Человек</th><th>Записей</th></tr></thead><tbody>';
+        data.groups.forEach(function (g) {
+          gh += '<tr><td>' + esc(g.group) + '</td><td>' + g.people + '</td><td>' + g.records + '</td></tr>';
+        });
+        gh += '</tbody></table>';
+        groupsBox.innerHTML = gh;
+      } else {
+        groupsBox.innerHTML = '';
+      }
+    }
 
     var votersBox = document.getElementById('votersList');
     var anyVotes = data.results.some(function (r) { return r.votes > 0; });
@@ -135,13 +204,16 @@
       votersBox.innerHTML = data.results.map(function (r) {
         if (r.votes === 0) return '';
         var isWinner = data.winner && r.id === data.winner.id;
-        var chips = (r.voters || []).map(function (n) {
-          return '<span class="voter-chip">' + esc(n) + '</span>';
+        var chips = (r.voters || []).map(function (v) {
+          var label = (typeof v === 'object' && v !== null) ? (v.label || v.name) : v;
+          var cls = (typeof v === 'object' && v.plusOne) ? 'voter-chip plusone' : 'voter-chip';
+          return '<span class="' + cls + '">' + esc(label) + '</span>';
         }).join('');
         return '<div class="voters-group' + (isWinner ? ' winner' : '') + '">' +
           '<div class="vg-head">' +
             '<span class="vg-title">' + esc(r.title) + '</span>' +
-            '<span class="vg-count">' + r.votes + ' чел.</span>' +
+            '<span class="vg-count">' + r.votes + ' чел.' +
+              (r.records && r.records !== r.votes ? ' (' + r.records + ' записей)' : '') + '</span>' +
           '</div>' +
           '<div class="voters-chips">' + chips + '</div>' +
         '</div>';
@@ -151,6 +223,50 @@
   .catch(function (err) {
     document.getElementById('pollTitle').textContent = '🔒 ' + (err.message || 'Опрос не найден');
   });
+
+  function renderTimer(data) {
+    var wrap = document.getElementById('phaseTimerWrap');
+    var phase = data.phase || 'vote';
+    var icon = '⏱', label = '', target = null;
+
+    if (phase === 'suggest') {
+      icon = '📝';
+      label = 'Приём предложений';
+      if (data.suggestEndsAt) target = new Date(data.suggestEndsAt).getTime();
+    } else if (phase === 'vote') {
+      icon = '🗳';
+      label = 'Голосование';
+      if (data.voteEndsAt) target = new Date(data.voteEndsAt).getTime();
+    } else {
+      icon = '🔒';
+      label = 'Опрос завершён';
+    }
+
+    wrap.innerHTML =
+      '<div class="phase-timer phase-' + phase + '">' +
+        '<div class="phase-timer-icon">' + icon + '</div>' +
+        '<div class="phase-timer-body">' +
+          '<div class="phase-timer-label">' + label + '</div>' +
+          '<div class="phase-timer-value" id="phaseValue"></div>' +
+        '</div>' +
+      '</div>';
+
+    phaseValueEl = document.getElementById('phaseValue');
+    phaseTarget = target;
+
+    if (phase === 'closed' || !target) {
+      phaseValueEl.textContent = phase === 'closed' ? '' : 'Без ограничения по времени';
+      return;
+    }
+    tickTimer();
+    timerInterval = setInterval(tickTimer, 1000);
+  }
+  function tickTimer() {
+    if (!phaseTarget || !phaseValueEl) return;
+    var remain = phaseTarget - serverNow();
+    phaseValueEl.textContent = fmtRemaining(remain);
+    if (remain <= 0 && timerInterval) clearInterval(timerInterval);
+  }
 })();
 </script>
 </body>
